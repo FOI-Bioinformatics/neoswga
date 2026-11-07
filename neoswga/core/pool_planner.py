@@ -8,6 +8,7 @@ from .candidate_source import INVENTORY_EXHAUSTED, as_candidate_source
 from .dimer_validator import DimerValidator
 from .lazy_dimer import LazyDimerCompatibility
 from .panel_beam import beam_search
+from .per_host_metrics import limit_figure as _limit_figure
 from .pool_objective import PoolConstraints
 from .swap_refinement import attach_search_config, coverage_bins, refine_by_swaps
 
@@ -317,8 +318,19 @@ def _evaluate_size(
         coverage=coverage,
         raw_coverage=metrics.fg_coverage,
         effective_coverage=metrics.effective_fg_coverage,
-        selectivity_density=metrics.selectivity_density if background_known else None,
-        background_sites=metrics.total_bg_sites if background_known else None,
+        # The figure each limit was JUDGED on, through the one dispatch, beside
+        # the pooled one. `plan-pool`'s eligibility comes from
+        # `objective.violations`, which asks `limit_figure`; a row that carried
+        # only the pooled figure put a number in the table that its own
+        # `failed_constraints` did not come from, and `pool_plan_report` plots
+        # that column against the configured floor.
+        selectivity_density=(
+            _limit_figure(metrics, "selectivity_density") if background_known else None
+        ),
+        background_sites=(_limit_figure(metrics, "total_bg_sites") if background_known else None),
+        pooled_selectivity_density=metrics.selectivity_density if background_known else None,
+        pooled_background_sites=metrics.total_bg_sites if background_known else None,
+        background_aggregate=str(getattr(metrics, "background_aggregate", None) or "sum"),
         violating_pairs=len(violations),
         self_dimers=len(self_dimers),
         repair=repair_record,

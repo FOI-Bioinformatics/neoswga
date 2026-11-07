@@ -64,6 +64,12 @@ class AcceptanceReport:
     shortfall: float
     values: tuple[tuple[str, float | None, float], ...]
     repaired: bool
+    #: Which reading of "the background" the three background-measured limits
+    #: were judged under. Last, with a default, so neither existing positional
+    #: construction moves. A table of limits that does not say this leaves a
+    #: reader to assume a panel was held to each host when it was held to the
+    #: pool, or the reverse.
+    background_aggregate: str = "sum"
 
     def lines(self) -> list[str]:
         """Lines for the CLI, naming each limit, its value and the panel's."""
@@ -81,6 +87,19 @@ class AcceptanceReport:
             shown = "not measured" if value is None else f"{value:,.6g}"
             met = "yes" if name not in self._failing_fields() else "NO"
             head.append(f"{name:<26} {shown:>14} {limit:>14,.6g}   {met}")
+        head.append("")
+        head.append(f"background_aggregate: {self.background_aggregate}.")
+        if self.background_aggregate != "sum":
+            # The `panel` column above is then the WORST HOST's figure for each
+            # background-measured limit, reduced per limit. Said here because
+            # a number in a column reads as a property of the panel against the
+            # whole background, and under this reading it is not.
+            head.append(
+                "  The panel column for min_selectivity_density, "
+                "max_background_sites and max_host_coverage is the WORST HOST's "
+                "figure, each reduced over hosts separately. The pooled figures "
+                "are in the summary under their own names."
+            )
         if self.violations:
             head.append("")
             head.append(f"Not met: {', '.join(self.violations)}.")
@@ -120,7 +139,21 @@ def constraints_from_parameter(source: Any) -> PoolConstraints | None:
 def _configured_values(
     constraints: PoolConstraints, metrics: Any
 ) -> tuple[tuple[str, float | None, float], ...]:
-    """Each configured limit beside the panel's own value for it."""
+    """Each configured limit beside the figure it was actually judged on.
+
+    `per_host_metrics.limit_figure`, not a plain attribute lookup. The `met`
+    column of the table these rows fill comes from `violations`, which asks
+    `limit_figure`; reading the pooled attribute here put a different number in
+    the `panel` column, and under `worst-case` the two disagreed. The printed
+    symptom was `min_selectivity_density  51  10  NO` -- a value comfortably
+    above its floor, marked not met -- with nothing in the table saying the
+    verdict had been reached on a different figure.
+
+    One dispatch for deciding and for displaying. A value and a verdict from
+    different arithmetic is the defect `PoolObjective` exists to prevent, and
+    this is the same defect one layer out.
+    """
+    from .per_host_metrics import limit_figure
     from .pool_objective import _LIMITS
 
     rows = []
@@ -128,7 +161,7 @@ def _configured_values(
         limit = getattr(constraints, field, None)
         if limit is None:
             continue
-        value = getattr(metrics, metric, None)
+        value = limit_figure(metrics, metric)
         rows.append((field, None if value is None else float(value), float(limit)))
     return tuple(rows)
 
@@ -179,6 +212,7 @@ def enforce_constraints(
         shortfall=objective.shortfall(panel),
         values=_configured_values(constraints, metrics),
         repaired=repaired,
+        background_aggregate=str(getattr(metrics, "background_aggregate", None) or "sum"),
     )
 
 
@@ -252,12 +286,14 @@ def apply_configured_limits(
     # argument to `report_acceptance` inside `if verbose:`, so on a programmatic
     # run the violations were never computed at all and there was nothing to
     # record even in principle. Printing stays verbose-only.
+    _final = objective.metrics(updated.primers)
     report = AcceptanceReport(
         list(updated.primers),
         objective.violations(updated.primers),
         objective.shortfall(updated.primers),
-        _configured_values(constraints, objective.metrics(updated.primers)),
+        _configured_values(constraints, _final),
         bool(details.get("succeeded")),
+        str(getattr(_final, "background_aggregate", None) or "sum"),
     )
     if verbose:
         report_acceptance(report)

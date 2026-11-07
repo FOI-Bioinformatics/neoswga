@@ -1433,8 +1433,13 @@ class HybridOptimizer(ThermoScreenMixin):
     def _count_background_sites(self, primers: list[str]) -> int:
         """The host load this run charges a panel, in site-count units.
 
-        Both background-aware stages rank on this. The reduction over hosts is
-        `per_host_metrics.host_site_charge`, documented there.
+        Both background-aware stages rank on this. `host_site_charge` has one
+        reading, the pooled sum, and refuses `worst-case` with two or more hosts
+        rather than charging a magnitude `background_weight` is not calibrated
+        for; `per_host_metrics.refuse_uncalibrated_host_term` carries the
+        argument and the measurement that would settle it. The up-front refusal
+        is in `unified_optimizer`, so this raise is only reached by a route that
+        skipped the gate.
         """
         if not primers or not self.bg_prefixes:
             return 0

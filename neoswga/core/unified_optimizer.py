@@ -46,6 +46,7 @@ from .panel_acceptance import (
     report_per_target,
 )
 from .panel_regime import assess_from_parameter, log_regime
+from .per_host_metrics import refuse_uncalibrated_host_term
 from .position_cache import PositionCache, StreamingPositionCache
 from .progress import progress_context
 from .search_control import SearchBudgetExhausted, collect_alternative_sets  # noqa: F401
@@ -1063,6 +1064,15 @@ def run_optimization(
     kwargs["candidate_source"] = _candidate_source
     # Resolved once and passed EXPLICITLY; see `core/per_host_metrics.py`.
     kwargs["background_aggregate"] = resolve_background_aggregate()
+    # And refused where it would mis-scale a tuned weight. Here, before any
+    # optimizer is built, because `_dispatch_optimizer` converts a constructor
+    # exception into a failure result and a refusal must not become one.
+    refuse_uncalibrated_host_term(
+        method,
+        kwargs["background_aggregate"],
+        len(bg_prefixes or []),
+        ensemble_methods=kwargs.get("ensemble_methods"),
+    )
     result, optimizer = _dispatch_optimizer(
         method,
         cache,

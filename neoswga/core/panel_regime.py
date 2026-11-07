@@ -45,6 +45,11 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any
 
+# The one dispatch on `background_aggregate`. A criterion built on a CONFIGURED
+# limit has to read the figure that limit was judged on, or the record carries a
+# value its own verdict did not come from.
+from .per_host_metrics import limit_figure
+
 # Comparison sense of a reference.
 AT_LEAST = "at_least"
 AT_MOST = "at_most"
@@ -80,6 +85,10 @@ class PanelRegime:
     limiting: str | None
     failing: tuple[str, ...]
     unreferenced: tuple[str, ...]
+    #: Which reading of "the background" the two configured specificity criteria
+    #: were measured under, so the printed block and the saved one both name it.
+    #: Defaulted and last so no existing construction moves.
+    background_aggregate: str = "sum"
 
 
 def _slack(value: float | None, reference: float, direction: str) -> float | None:
@@ -369,26 +378,44 @@ def assess_panel(
         ),
     ]
 
+    # The two CONFIGURED criteria read the figure their limit was judged on,
+    # through the one dispatch, not the pooled attribute. Reading the pooled one
+    # put a value in the record that the verdict did not come from: on a
+    # two-host `worst-case` design the saved `panel_regime` recorded
+    # `selectivity_density` 94.05 against a floor of 10 with a slack of 8.405,
+    # where the figure that bound was 11.06 and the true slack 0.106 -- and
+    # `slack` is what this module ranks on to say which criterion to move first,
+    # so a reader was sent to the wrong knob.
+    #
+    # `aggregate` is carried onto the regime so every rendering and the saved
+    # block can name it. The note on each criterion names it too, because a row
+    # in a table is read on its own.
+    aggregate = str(getattr(metrics, "background_aggregate", None) or "sum")
+    per_host = aggregate != "sum"
     if min_selectivity_density is not None:
         criteria.append(
             _referenced(
                 "selectivity_density",
-                _as_float(getattr(metrics, "selectivity_density", None)),
+                _as_float(limit_figure(metrics, "selectivity_density")),
                 float(min_selectivity_density),
                 AT_LEAST,
                 "per-base ratio",
-                "configured floor; comparable across background sizes",
+                (
+                    "configured floor, on the WORST HOST's own length"
+                    if per_host
+                    else "configured floor; comparable across background sizes"
+                ),
             )
         )
     if max_background_sites is not None:
         criteria.append(
             _referenced(
                 "background_sites",
-                _as_float(getattr(metrics, "total_bg_sites", None)),
+                _as_float(limit_figure(metrics, "total_bg_sites")),
                 float(max_background_sites),
                 AT_MOST,
                 "sites",
-                "configured ceiling",
+                "configured ceiling, on the WORST HOST alone" if per_host else "configured ceiling",
             )
         )
 
@@ -406,6 +433,7 @@ def assess_panel(
         limiting=limiting,
         failing=failing,
         unreferenced=unreferenced,
+        background_aggregate=aggregate,
     )
 
 
@@ -454,6 +482,17 @@ def format_regime(regime: PanelRegime) -> list[str]:
         )
 
     lines.append("")
+    lines.append(f"background_aggregate: {regime.background_aggregate}.")
+    if regime.background_aggregate != "sum":
+        # Only the two configured specificity criteria move with the reading,
+        # and saying which is cheaper than leaving a reader to work it out from
+        # a value that does not match the summary's pooled figure.
+        lines.append(
+            "  selectivity_density and background_sites above are the WORST "
+            "HOST's figures, which is what their limits were judged on. The "
+            "pooled figures are in the summary under their own names."
+        )
+        lines.append("")
     if regime.limiting:
         # `limiting` is the minimum slack, which means the widest relative MISS
         # on a panel that fails something and the least HEADROOM on one that
@@ -498,8 +537,14 @@ def format_regime(regime: PanelRegime) -> list[str]:
 
 
 def criteria_for_summary(regime: PanelRegime) -> dict:
-    """The regime as plain data for `step4_improved_df_summary.json`."""
+    """The regime as plain data for `step4_improved_df_summary.json`.
+
+    `background_aggregate` is in the block, not left to be looked up elsewhere
+    in the file: the two specificity criteria carry a different figure under
+    each reading, and this block is read on its own by sweeps and comparisons.
+    """
     return {
+        "background_aggregate": regime.background_aggregate,
         "limiting": regime.limiting,
         "failing": list(regime.failing),
         "unreferenced": list(regime.unreferenced),

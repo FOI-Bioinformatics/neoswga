@@ -174,12 +174,20 @@ def log_freq_gates(
     max_bg_freq: float,
     fg_length: int,
     bg_length: int,
+    bg_length_basis: str = "",
 ) -> None:
     """Report the thresholds a run is really applying, once per primer length.
 
     The length scaling was invisible: nothing printed the applied value, so a
     user comparing params.json against the result had no way to see that
     `max_bg_freq: 5e-07` had become 3.13e-08 at k=12.
+
+    `bg_length` must be the length the gate DIVIDES BY, not the pooled length
+    when those differ. Under `background_aggregate: worst-case` each host is
+    judged on its own length, so the pooled length overstates the implied site
+    count by sum(host lengths) / host length, and the log then advertises a
+    ceiling the gate does not apply. `bg_length_basis` names which length it is
+    whenever that is not the pooled one.
     """
     fg = describe_freq_gate(min_fg_freq, primer_length, fg_length)
     bg = describe_freq_gate(max_bg_freq, primer_length, bg_length) if bg_length else None
@@ -191,7 +199,9 @@ def log_freq_gates(
     if bg is not None:
         message += (
             f"; max_bg_freq {bg['configured']:.3g} -> {bg['scaled']:.3g} "
-            f"(< {bg['sites']:.2f} background sites)"
+            f"(< {bg['sites']:.2f} background sites"
+            + (f", against {bg_length_basis}" if bg_length_basis else "")
+            + ")"
         )
     logger.info(message)
 
@@ -765,12 +775,26 @@ def get_all_rates(
             # Once per length, say what is actually being applied. The scaling
             # silently divides both gates by 4^(k-10), and at k>=13 the
             # background ceiling falls below one site.
+            # The LENGTH the background gate divides by, which is each host's
+            # own under `worst-case` and the pooled one under `sum`. Logging the
+            # pooled length under both made the implied site count too large by
+            # sum(host lengths) / host length -- on a 40 kb host beside a 1.72 Mb
+            # one, a ceiling of 0.2 sites was printed as 10.2, so the log said a
+            # candidate could carry ten host sites where the gate admitted none.
+            # The smallest host is the binding one, so it is the one reported.
+            _gate_hosts = [h.length for h in hosts] if aggregate == WORST_CASE else []
             log_freq_gates(
                 primer_length=primer_len,
                 min_fg_freq=parameter.min_fg_freq,
                 max_bg_freq=parameter.max_bg_freq,
                 fg_length=fg_total_length,
-                bg_length=bg_total_length,
+                bg_length=min(_gate_hosts) if _gate_hosts else bg_total_length,
+                bg_length_basis=(
+                    "the smallest host's own length, which is the binding one "
+                    "under background_aggregate='worst-case'"
+                    if _gate_hosts
+                    else ""
+                ),
             )
         scaled_min_fg, scaled_max_bg = _threshold_cache[primer_len]
         fg_count = primer_to_fg_count.get(primer, None)

@@ -33,6 +33,17 @@ if it holds for every host. Each limit therefore reduces independently:
 key and no per-host threshold list -- one limit, applied per host, which is the
 Phase 7 guard.
 
+**One dispatch.** `limit_figure` is the only place anything decides which figure
+a limit on one of those three quantities reads, and it is asked by everything
+that DECIDES one (`pool_objective.violations` and `.shortfall`) and everything
+that DISPLAYS one (`panel_acceptance`'s configured-limits table,
+`panel_regime`'s criteria, `pool_planner`'s plan row, `panel_beam`'s ranking).
+That second half was missed once, and the symptom was a printed table reading
+`min_selectivity_density 51 10 NO` -- a value above its floor marked not met --
+and a saved `panel_regime` slack wrong by 79x. A value and a verdict that come
+from different figures is the defect this module exists to prevent, one layer up
+from the one `PoolObjective` prevents.
+
 **Unknown is not the worst of the rest.** A host whose positions were never
 scanned has no answer, and a reduction over a set with an unmeasured member is
 unmeasured: the figure is `None`, never the minimum or maximum over the hosts
@@ -40,7 +51,23 @@ that happened to answer. `pool_objective._unmet` treats `None` as missing its
 limit, so a background-measured limit under `worst-case` with an unscanned host
 is REFUSED rather than satisfied. `position_cache.has_entry` is the question
 asked, because an empty entry (scanned, binds nowhere) and an absent one (never
-scanned) are different answers and only the first is a measurement.
+scanned) are different answers and only the first is a measurement. It is asked
+at every host count, one included.
+
+**A figure nothing reads is not computed, and says so.** The per-host
+occupancy-weighted load costs one k-mer table pass per host per evaluation and
+only `worst-case` reads it. `per_host_load_is_in_force` is the one reader of
+that question; a row whose load was skipped carries `load_unavailable` beside
+real measured sites and coverage. Three states, never two: measured, not
+measurable, and measured-with-one-figure-withheld.
+
+**The search-time host term is pooled, and that is refused rather than
+silent.** `host_site_charge` has one reading, and
+`refuse_uncalibrated_host_term` explains why: the per-host reduction multiplies
+the charge by `sum(host lengths) / worst host length`, and `background_weight`
+is calibrated against the pooled magnitude. `worst-case` with
+`background-aware` and two or more hosts is refused up front, naming the
+measurement that would settle it.
 
 **Nothing moves under `sum`.** `limit_figure` returns the pooled attribute it
 has always returned, the pooled fields on `PrimerSetMetrics` keep their pooled
@@ -67,7 +94,19 @@ __all__ = [
     "host_site_charge",
     "limit_figure",
     "measure_background",
+    "per_host_load_is_in_force",
+    "refuse_uncalibrated_host_term",
 ]
+
+#: Why a per-host occupancy load was not computed, when nothing reads it. A
+#: DIFFERENT thing from a host that could not be measured, and kept apart from
+#: it: "scanned, and this run does not need the figure" is not "never scanned",
+#: and neither is zero.
+LOAD_NOT_IN_FORCE = (
+    "the per-host occupancy load is computed only under "
+    "background_aggregate='worst-case', where a panel limit reads it. The "
+    "pooled load for this panel is in effective_bg_sites"
+)
 
 #: The three metrics whose value a limit is read against changes with
 #: `background_aggregate`, mapped to the `PrimerSetMetrics` field carrying the
@@ -89,9 +128,17 @@ AGGREGATE_REDUCED: dict[str, str] = {
 class HostFigures:
     """What one host genome measured for one panel, or why it did not.
 
-    `unavailable` is non-empty whenever the host could not be measured, and then
-    every figure is `None`. A host that was scanned and carries no site has
-    `sites == 0` and an empty `unavailable`: that zero is a result.
+    Three states, not two, and they must not share a representation.
+
+    - Measured. `unavailable` and `load_unavailable` are empty. A host that was
+      scanned and carries no site has `sites == 0`: that zero is a result.
+    - Not measurable. `unavailable` says why and EVERY figure is `None`. The
+      host's positions were never scanned, so nothing about it is known.
+    - Measured, but the occupancy-weighted load was not computed because
+      nothing reads it. `load_unavailable` says so, `effective_load` and
+      `selectivity_density` are `None`, and sites, sites per Mb and coverage are
+      real measurements -- they come free from positions already in hand. This is
+      the default-path case; see `per_host_load_is_in_force`.
     """
 
     prefix: str
@@ -102,6 +149,9 @@ class HostFigures:
     coverage: float | None
     selectivity_density: float | None
     unavailable: str = ""
+    #: Why the occupancy-weighted load and the density derived from it are
+    #: absent although the host WAS measured. Empty when they are present.
+    load_unavailable: str = ""
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -114,6 +164,10 @@ class HostFigures:
             # `reference_panel_evaluation.PairRecord`, and computed the same way.
             "selectivity_density": self.selectivity_density,
             "unavailable": self.unavailable or None,
+            # Separate from the above: this host WAS measured and the load alone
+            # was not computed. A reader that collapsed the two would report a
+            # scanned host as unscanned.
+            "load_unavailable": self.load_unavailable or None,
             # Said in every record rather than inferred from its absence: a
             # per-host ratio is not comparable across hosts of different size.
             "comparable": "selectivity_density",
@@ -188,51 +242,136 @@ def limit_figure(metrics: Any, metric: str) -> Any:
     return getattr(metrics, metric, None)
 
 
+def per_host_load_is_in_force(aggregate: str | None) -> bool:
+    """Whether anything will READ a per-host occupancy-weighted load.
+
+    The one reader of that question, so the module that computes the load and
+    the rows that report its absence cannot disagree about whether it was in
+    force. True exactly under `worst-case`, where `limit_figure` routes the
+    density floor to the per-host reduction. Under `sum` every configured limit
+    reads a pooled field, so computing the per-host loads would cost one k-mer
+    table pass per host per evaluation for a figure nothing consults.
+
+    Measured on a real two-host design with `selectivity_mode = occupancy`,
+    computing them unconditionally cost +58 percent of `compute_metrics`
+    (2.19 ms to 3.46 ms, two `weighted_site_load` calls to four) on the DEFAULT
+    path. `compute_metrics` is the search's per-panel evaluator, so that is a
+    multiplier on step-4 wall time rather than a one-off.
+
+    The sites, the sites per Mb and the coverage are not gated on this: they
+    come from the per-prefix positions the caller already holds and cost
+    nothing, so the per-host table is still a table under `sum`. What it does
+    not carry there is the load and the density, each marked
+    `load_unavailable` with `LOAD_NOT_IN_FORCE` rather than zero.
+
+    One exception, and it is free: under `selectivity_mode == "exact"` the
+    pooled load IS the raw site count, so each host's load is its own count and
+    no extra work exists to skip.
+    """
+    return resolve_background_aggregate(aggregate) == WORST_CASE
+
+
+def refuse_uncalibrated_host_term(
+    method: Any, aggregate: str | None, host_count: int, *, ensemble_methods: Any = None
+) -> None:
+    """Refuse `worst-case` with the one optimizer whose host term it miscalibrates.
+
+    `background-aware` ranks removals on
+    `background_weight * host_sites - coverage_loss * 1000`. The host term is a
+    site COUNT, and `background_weight` (default 2.0) was chosen against the
+    magnitude a POOLED count has. A per-host reduction cannot keep both the
+    ranking and the magnitude:
+
+    - rank on the worst host's DENSITY, carried back onto the pooled length, and
+      the ranking is right -- counts are not comparable across hosts of
+      different size (Known Issue 6) -- but the magnitude is multiplied by
+      `sum(host lengths) / worst host length`. On this project's own three-host
+      panel (3.35 Mb, 144 Mb, 3300 Mb) that factor is 1029, 24 or 1.05
+      depending on which host is worst, and 44 in the Phase 7c test world. A
+      `background_weight` tuned under `sum` then buys up to a thousand times
+      more host avoidance than it did, and coverage is spent paying for it.
+    - rank on the worst host's own count and the magnitude is bounded by the
+      pooled sum, but the ranking compares counts across unequal hosts, which is
+      the comparison Known Issue 6 says does not hold.
+
+    Phase 7c shipped the first and claimed the magnitude was preserved. It is
+    not, past one host. Rather than leave a term mis-scaled by three orders of
+    magnitude reachable behind a note, the combination is refused.
+
+    What would settle it: a measurement of `background_weight` under
+    `worst-case` on a host panel spanning at least two orders of magnitude --
+    Phase 3's D3 design rerun with `background_aggregate: worst-case` and
+    `optimization_method: background-aware` across a range of
+    `background_weight`, reporting delivered coverage against worst-host
+    density. `scripts/benchmarking/diversity_baseline.py` is where that belongs.
+
+    Every other method is unaffected: none of them has a host term in its
+    selection, and the per-host figures and the configured limits read
+    `limit_figure`, which carries no weight to calibrate. With ONE host the two
+    readings are integer-identical, so there is nothing to refuse and nothing is.
+    """
+    from .exceptions import InvalidDesignRequest
+
+    if resolve_background_aggregate(aggregate) != WORST_CASE or int(host_count) < 2:
+        return
+    named = {str(method or "").lower()}
+    named.update(str(name).lower() for name in (ensemble_methods or ()))
+    # An ensemble with no explicit method list runs `_dispatch_optimizer`'s
+    # default, which includes `background-aware`. Naming the aliases here rather
+    # than importing that list keeps this module free of a cycle; the ensemble
+    # aliases are pinned by `tests/test_per_host_figures.py` against the
+    # dispatch's own default so the two cannot drift apart.
+    if ensemble_methods is None and named & {"ensemble", "auto", "all"}:
+        named.add("background-aware")
+    if not named & {"background-aware", "bg-aware", "clinical"}:
+        return
+    raise InvalidDesignRequest(
+        "background_aggregate",
+        "cannot be 'worst-case' with optimization_method 'background-aware' and "
+        f"{int(host_count)} host genomes. That optimizer ranks removals on a host "
+        "SITE COUNT scaled by background_weight, and the per-host reduction "
+        "multiplies that count by sum(host lengths) / worst host length -- up to "
+        "1029x on this project's own three-host panel -- so a background_weight "
+        "tuned under 'sum' no longer means what it meant. No measurement "
+        "establishes the weight under the per-host reading. Use 'sum' with "
+        "'background-aware', or 'worst-case' with another method (the per-host "
+        "figures and every configured panel limit still bind per host there). "
+        "What would settle it: Phase 3's D3 design rerun under 'worst-case' "
+        "across a range of background_weight, reporting delivered coverage "
+        "against worst-host density",
+        WORST_CASE,
+    )
+
+
 def host_site_charge(sites_by_prefix: dict[str, int], lengths: Any, aggregate: str | None) -> int:
     """The host load a SEARCH charges a panel, in site-count units.
 
-    `hybrid_optimizer._count_background_sites` is the caller, and through it
-    both background-aware stages: `_prune_background`'s ranking and
-    `_network_refine`'s `bg_by_primer` weighting. The reduction lives here
-    rather than there so the stage that selects and the metrics that report
+    `hybrid_optimizer._count_background_sites` is the caller, and through it both
+    background-aware stages: `_prune_background`'s ranking and
+    `_network_refine`'s `bg_by_primer` weighting. The reduction over hosts lives
+    here rather than there so the stage that selects and the metrics that report
     cannot disagree about what "the background" is -- the two halves of Known
     Issue 14.
 
-    Under `sum` this is the flat sum over hosts it has always been: every listed
-    host present at once.
+    **There is one reading, and it is the pooled sum: every listed host present
+    at once.** Phase 7c shipped a `worst-case` branch here that charged the worst
+    host's site density carried back onto the pooled length. The ranking was
+    right and the magnitude was not: it multiplies the charge by
+    `sum(host lengths) / worst host length`, which is 1029 on this project's own
+    three-host panel, and `background_weight` scales this term against a coverage
+    term. `refuse_uncalibrated_host_term` carries the whole argument and the
+    measurement that would settle it.
 
-    Under `worst-case` the panel faces ONE host and which one is not known in
-    advance, so the charge is the worst host's. Site counts are not comparable
-    across hosts of different size, for the reason `selectivity_ratio` is not
-    (Known Issue 6): with a 40 kb and a 1.72 Mb host listed, a primer with every
-    one of its sites on the small host still looks clean against the pool. So
-    the worst host is chosen on site DENSITY, and the charge is that density
-    carried back onto the pooled length.
-
-    Returning it in count units is deliberate. `background_weight` scales this
-    term against a coverage term measured in bins, and it was calibrated with
-    counts on this side; changing the unit would silently retune the trade-off
-    the flag is named for. Carrying the density back onto the pooled length also
-    makes the one-host case EXACTLY the pooled sum, so `worst-case` and `sum`
-    agree on a single host rather than nearly agreeing.
-
-    A host with no positive length cannot supply a density, and a maximum taken
-    over the hosts that happened to have one is not a worst case. The pooled sum
-    is charged instead, which leaves the panel no better off than under `sum`.
+    So `aggregate` is not ignored and this is not a silent pooling: `worst-case`
+    with two or more hosts RAISES here, behind the up-front refusal, so the
+    combination cannot be reached by a route that skipped the gate. With one host
+    the two readings are integer-identical and there is nothing to decide.
     """
     prefixes = list(sites_by_prefix)
     total = sum(int(value) for value in sites_by_prefix.values())
-    if resolve_background_aggregate(aggregate) != WORST_CASE or len(prefixes) < 2:
-        return total
-
-    sizes = [int(value) for value in (lengths or [])]
-    if len(sizes) != len(prefixes) or min(sizes, default=0) <= 0:
-        return total
-    worst = max(
-        int(sites_by_prefix[prefix]) / length
-        for prefix, length in zip(prefixes, sizes, strict=True)
-    )
-    return int(round(worst * sum(sizes)))
+    if resolve_background_aggregate(aggregate) == WORST_CASE and len(prefixes) >= 2:
+        refuse_uncalibrated_host_term("background-aware", aggregate, len(prefixes))
+    return total
 
 
 def measure_background(
@@ -262,8 +401,10 @@ def measure_background(
     The occupancy-weighted per-host load is the one quantity positions cannot
     supply. When `selectivity_mode` is "exact" the pooled load is the raw site
     count, so each host's load is its own count and nothing extra is computed.
-    Otherwise one `occupancy.weighted_site_load` call per host is made, and a
-    host whose k-mer tables are missing is unmeasured rather than zero.
+    Otherwise it is computed only when `per_host_load_is_in_force` says something
+    will read it, and a row whose load was skipped says so in
+    `load_unavailable` -- a measured host with one figure withheld, which is not
+    the same as a host nothing measured and not the same as zero.
     """
     mode = resolve_background_aggregate(getattr(optimizer, "background_aggregate", None))
     prefixes = list(getattr(optimizer, "bg_prefixes", None) or [])
@@ -278,7 +419,18 @@ def measure_background(
         reason = "" if not prefixes else "bg_prefixes and bg_seq_lengths do not pair one to one"
         return BackgroundReading(mode=mode, unavailable=reason)
 
+    # Asked for EVERY host count including one. The short-circuit below used to
+    # come first, so at n=1 the module's own rule -- an absent entry is not a
+    # zero -- went unasked, and an indexed host holding no entry for any panel
+    # oligo reported `sites: 0` with `unavailable: null` and the most favourable
+    # density there is. `sum` answers the same way and always did, but
+    # `worst-case` promises that unknown is refused, and a promise void at one
+    # host is not the promise.
+    unscanned = _unscanned_hosts(optimizer, primers, prefixes)
+
     if len(prefixes) == 1:
+        if prefixes[0] in unscanned:
+            return _reduce(mode, (_unmeasured(prefixes[0], lengths[0], unscanned[prefixes[0]]),))
         # The pooled figures ARE this host's, so they are carried over rather
         # than recomputed. `pooled_coverage` is None only for an evaluator that
         # does not measure background coverage at all (`pool_metrics`), and then
@@ -304,8 +456,9 @@ def measure_background(
             worst_host_bg_coverage=coverage,
         )
 
-    unscanned = _unscanned_hosts(optimizer, primers, prefixes)
-    loads = _per_host_loads(optimizer, primers, prefixes, positions_by_prefix, selectivity_mode)
+    loads, load_skipped = _per_host_loads(
+        optimizer, primers, prefixes, positions_by_prefix, selectivity_mode, mode
+    )
     fg_length = int(sum(getattr(optimizer, "fg_seq_lengths", None) or []))
 
     records = []
@@ -315,7 +468,7 @@ def measure_background(
             continue
         sites = len(positions_by_prefix.get(prefix, ()) or ())
         load = loads.get(prefix)
-        if load is None:
+        if load is None and not load_skipped:
             records.append(
                 _unmeasured(
                     prefix,
@@ -332,9 +485,12 @@ def measure_background(
                 sites_per_mb=_per_mb(sites, length),
                 effective_load=load,
                 coverage=_coverage_of(optimizer, positions_by_prefix, prefix, length),
-                selectivity_density=selectivity_density_from_loads(
-                    effective_fg, fg_length, load, length
+                selectivity_density=(
+                    None
+                    if load is None
+                    else selectivity_density_from_loads(effective_fg, fg_length, load, length)
                 ),
+                load_unavailable=LOAD_NOT_IN_FORCE if load is None else "",
             )
         )
 
@@ -360,9 +516,19 @@ def _reduce(mode: str, records: tuple[HostFigures, ...]) -> BackgroundReading:
             ),
         )
 
+    # Each reduction needs EVERY host to have answered for that quantity, not
+    # just some of them. The density reduction had no such guard: it took the
+    # minimum over the hosts carrying a density, which is the "worst of the
+    # rest" this whole module exists to refuse. Unreachable while
+    # `selectivity_density_from_loads` returns 0.0 and never None for a measured
+    # host -- but reachable the moment the per-host load is withheld, which
+    # `per_host_load_is_in_force` now does on the default path, so the guard is
+    # load-bearing rather than defensive.
     densities = [r for r in records if r.selectivity_density is not None]
-    worst_density = min(densities, key=lambda r: r.selectivity_density) if densities else None
+    complete = len(densities) == len(records)
+    worst_density = min(densities, key=lambda r: r.selectivity_density) if complete else None
     coverages = [r.coverage for r in records if r.coverage is not None]
+    sites = [r.sites for r in records if r.sites is not None]
     return BackgroundReading(
         mode=mode,
         per_host=records,
@@ -370,7 +536,9 @@ def _reduce(mode: str, records: tuple[HostFigures, ...]) -> BackgroundReading:
             worst_density.selectivity_density if worst_density else None
         ),
         worst_host=worst_density.prefix if worst_density else None,
-        worst_host_background_sites=max(int(r.sites) for r in records),
+        worst_host_background_sites=(
+            max(int(value) for value in sites) if len(sites) == len(records) else None
+        ),
         worst_host_bg_coverage=max(coverages) if len(coverages) == len(records) else None,
     )
 
@@ -444,30 +612,41 @@ def _unscanned_hosts(optimizer, primers, prefixes) -> dict[str, str]:
 
 
 def _per_host_loads(
-    optimizer, primers, prefixes, positions_by_prefix, selectivity_mode
-) -> dict[str, float | None]:
+    optimizer, primers, prefixes, positions_by_prefix, selectivity_mode, aggregate
+) -> tuple[dict[str, float | None], bool]:
     """Each host's binding load, on the same footing as the pooled one.
+
+    Returns `(loads, skipped)`. `skipped` is True when the loads were not
+    attempted at all because nothing will read them, which the caller turns into
+    `load_unavailable` on a row whose other figures are real measurements. A
+    `None` load with `skipped` False is a host whose load was attempted and
+    could not be computed, and that makes the host unmeasured.
 
     Under mode "exact" the pooled load IS the raw site count -- that is what
     `_effective_site_load` falls back to when the mismatch-class tables are
     absent -- so each host's load is its own count, free and exactly consistent
-    with the pooled figure.
+    with the pooled figure. Nothing is skipped there because there is no cost.
 
-    Otherwise `occupancy.weighted_site_load` is asked once per host. The pooled
-    call is NOT replaced by the sum of these: `(a + b) * theta` and
-    `a * theta + b * theta` are not the same float, and the pooled figures must
-    not move under `sum`.
+    Otherwise `occupancy.weighted_site_load` is asked once per host, and only
+    when `per_host_load_is_in_force`. The pooled call is NOT replaced by the sum
+    of these: `(a + b) * theta` and `a * theta + b * theta` are not the same
+    float, and the pooled figures must not move under `sum`. That is also why
+    this cost is additive rather than free, and why it is not paid by a run that
+    reads none of it.
     """
     if selectivity_mode == "exact":
         return {
             prefix: float(len(positions_by_prefix.get(prefix, ()) or ())) for prefix in prefixes
-        }
+        }, False
+
+    if not per_host_load_is_in_force(aggregate):
+        return {prefix: None for prefix in prefixes}, True
 
     from neoswga.core.occupancy import weighted_site_load
 
     conditions = getattr(optimizer, "conditions", None)
     if conditions is None:
-        return {prefix: None for prefix in prefixes}
+        return {prefix: None for prefix in prefixes}, False
     max_mismatches = int(getattr(optimizer.config, "max_mismatches", 1) or 0)
     model = getattr(optimizer, "mismatch_model", None)
     penalty = getattr(optimizer, "mismatch_penalty", None)
@@ -484,4 +663,4 @@ def _per_host_loads(
             # its tables leaves THAT host unmeasured; substituting its exact
             # count here would put two definitions of one number in one table.
             loads[prefix] = None
-    return loads
+    return loads, False

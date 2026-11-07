@@ -208,6 +208,12 @@ def _write_sizes_csv(plan, output):
         "effective_coverage",
         "selectivity_density",
         "background_sites",
+        # Both readings, side by side, and the key saying which the two columns
+        # above are. Equal under `sum`; under `worst-case` the first pair is the
+        # worst host's, which is what the limits were judged on.
+        "pooled_selectivity_density",
+        "pooled_background_sites",
+        "background_aggregate",
         "eligible",
         "status",
         "repaired_by",
@@ -326,6 +332,24 @@ def write_pool_plan(plan, output):
     background_limit = _text(
         plan["max_background_sites"] if plan["max_background_sites"] is not None else "not set"
     )
+    # Which reading of "the background" the two columns above were judged on.
+    # Read off the rows rather than the plan header, so a plan saved before this
+    # key existed still renders and reads "sum", which is what it was.
+    aggregate = next(
+        (r.get("background_aggregate") for r in plan["rows"] if r.get("background_aggregate")),
+        "sum",
+    )
+    aggregate_note = (
+        ""
+        if aggregate == "sum"
+        else (
+            " The density ratio and background sites columns below are the WORST "
+            "HOST's figures, each measured on that host's own length, which is "
+            "what their limits were judged on; the pooled figures are in "
+            "pool_sizes.csv as pooled_selectivity_density and "
+            "pooled_background_sites."
+        )
+    )
     title = _text(plan.get("title", "Oligo pool design"))
     params = plan.get("design_parameters", {})
     inputs = plan.get("inputs", {})
@@ -418,6 +442,7 @@ table{{border-collapse:collapse;width:100%}}td,th{{padding:9px;border-bottom:1px
 <p>{_text(plan["interpretation"])}</p>
 <p>Coverage metric: {_text(plan["coverage_metric"])}; extension reach: {plan["extension_reach"]:,} bp.
 Minimum site-density ratio: {density_limit}; maximum exact background sites: {background_limit}. A density ratio is not a prediction of fold enrichment.</p>
+<p>background_aggregate: {_text(aggregate)}.{aggregate_note}</p>
 <details><summary>Design inputs and settings</summary><table>{context_html}</table></details>
 <h2>Smallest qualifying pools found</h2><ul>{"".join(targets)}</ul>
 <p>{best_text}</p>

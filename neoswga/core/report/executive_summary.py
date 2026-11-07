@@ -431,7 +431,7 @@ EXECUTIVE_SUMMARY_TEMPLATE = """<!DOCTYPE html>
                 <div class="rating {coverage_rating_class}">{coverage_rating}</div>
             </div>
             <div class="metric-card">
-                <div class="label">Enrichment</div>
+                <div class="label">Enrichment{enrichment_aggregate_label}</div>
                 <div class="value">{enrichment_display}</div>
                 <div class="progress-container">
                     <div class="progress-bar {enrichment_progress_class}"
@@ -649,6 +649,20 @@ def render_executive_summary(summary: ExecutiveSummary, interactive: bool = Fals
     from neoswga.core.base_optimizer import MAX_SELECTIVITY
 
     enrichment_display = "no bg binding" if enrichment >= MAX_SELECTIVITY else f"{enrichment:.0f}x"
+    # Which reading of "the background" this figure is. It is the POOLED density
+    # ratio under both readings, and saying so is the point: the default view is
+    # the one most people read, and a design whose limits bound on the worst host
+    # showed a pooled enrichment here with nothing naming the difference. Empty
+    # under `sum`, so no existing summary gains a label it does not need.
+    _aggregate = getattr(metrics.specificity, "background_aggregate", None) or "sum"
+    enrichment_aggregate_label = (
+        ""
+        if _aggregate == "sum"
+        else (
+            ' <span class="coverage-badge">pooled hosts; limits judged per host '
+            f"(background_aggregate: {_aggregate})</span>"
+        )
+    )
     uniformity = uniformity_comp.raw_value if uniformity_comp else 0.5
     dimer_risk = dimer_comp.raw_value if dimer_comp else 0
 
@@ -765,6 +779,7 @@ def render_executive_summary(summary: ExecutiveSummary, interactive: bool = Fals
         # Enrichment
         enrichment=enrichment,
         enrichment_display=enrichment_display,
+        enrichment_aggregate_label=enrichment_aggregate_label,
         enrichment_bar_pct=enrichment_bar,
         enrichment_rating=specificity_comp.rating if specificity_comp else "N/A",
         enrichment_rating_class=get_rating_class(

@@ -115,9 +115,7 @@ def world(tmp_path_factory):
             for primer in primers:
                 hits = [] if name == "large" else [i * step + 11 for i in range(8)]
                 handle.create_dataset(primer, data=np.array(hits, dtype=np.int64))
-                handle.create_dataset(
-                    reverse_complement(primer), data=np.array([], dtype=np.int64)
-                )
+                handle.create_dataset(reverse_complement(primer), data=np.array([], dtype=np.int64))
 
     # Indexed, but not for THESE oligos: one unrelated key, so the file exists
     # and the prefix is loadable while every panel member is unanswered.
@@ -370,9 +368,7 @@ def test_a_background_site_ceiling_reduces_to_the_densest_host(world, monkeypatc
     """
     _optimizer, worst = _metrics(world, monkeypatch, WORST_CASE)
 
-    assert worst.worst_host_background_sites == max(
-        row["sites"] for row in worst.per_host.values()
-    )
+    assert worst.worst_host_background_sites == max(row["sites"] for row in worst.per_host.values())
     assert _objective(worst, max_background_sites=4).violations(["X"]) == (
         "background sites above maximum",
     )
@@ -390,9 +386,7 @@ def test_no_limit_key_was_added(world, monkeypatch):
     from neoswga.core.pool_objective import _LIMITS
 
     assert not [key for key in LIMIT_KEYS if "host" in key and key != "max_host_coverage"]
-    assert not [
-        field for field, _m, _s, _msg, _bg in _LIMITS if field.startswith("per_host")
-    ]
+    assert not [field for field, _m, _s, _msg, _bg in _LIMITS if field.startswith("per_host")]
 
 
 def test_the_reduced_metrics_are_exactly_the_background_measured_limits():
@@ -465,9 +459,7 @@ def test_an_unscanned_host_makes_the_worst_case_unknown(world, monkeypatch):
         ({"max_host_coverage": 0.999}, "host coverage above maximum"),
     ],
 )
-def test_a_background_limit_on_an_unscanned_host_is_refused(
-    world, monkeypatch, limits, message
-):
+def test_a_background_limit_on_an_unscanned_host_is_refused(world, monkeypatch, limits, message):
     """Refused, not satisfied -- and the limits chosen here are ones every
     measured panel clears easily, so a pass could only come from the missing
     measurement being read as a favourable number."""
@@ -555,9 +547,7 @@ def test_the_focused_evaluator_records_the_same_reading(world, monkeypatch):
     ) == per_host_metrics.limit_figure(full, "selectivity_density")
 
 
-def test_the_focused_evaluator_refuses_a_host_coverage_limit_as_it_always_did(
-    world, monkeypatch
-):
+def test_the_focused_evaluator_refuses_a_host_coverage_limit_as_it_always_did(world, monkeypatch):
     """It carries no background coverage, so that limit routes elsewhere.
 
     Unchanged behaviour, asserted because adding `worst_host_bg_coverage` here
@@ -578,36 +568,38 @@ def test_the_focused_evaluator_refuses_a_host_coverage_limit_as_it_always_did(
 def test_the_host_charge_on_one_host_is_the_pooled_sum_exactly():
     """Integer-identical, so a single-host run cannot move under `worst-case`."""
     for sites in (0, 1, 7, 1234):
-        assert (
-            per_host_metrics.host_site_charge({"h": sites}, [3_000_000], WORST_CASE) == sites
-        )
+        assert per_host_metrics.host_site_charge({"h": sites}, [3_000_000], WORST_CASE) == sites
 
 
-def test_the_host_charge_picks_the_densest_host_not_the_biggest_count():
-    """The reason the reduction is on density.
+def test_the_host_charge_has_one_reading_and_refuses_the_other():
+    """The search-time host term is the pooled sum, and says so by raising.
 
-    Nine sites on 40 kb is a far heavier host load than 100 sites on 1.72 Mb,
-    and a maximum over raw counts would pick the second. In count units against
-    the pooled 1.76 Mb the small host charges 396 and the pooled sum is 109.
+    Phase 7c first shipped a `worst-case` branch here that charged the worst
+    host's site density carried back onto the pooled length. The ranking was
+    right -- counts are not comparable across hosts of different size -- and the
+    magnitude was not: it multiplies the charge by
+    `sum(host lengths) / worst host length`, 44x in this world and 1029x on this
+    project's own three-host panel, while `background_weight` scales this term
+    against a coverage term and was chosen against the pooled magnitude.
+
+    So the reduction is withdrawn rather than left behind a note, and the
+    function raises rather than pooling silently: a route that skipped the
+    up-front refusal must not get a number instead of an error.
+    `tests/test_the_host_term_has_one_calibration.py` holds the refusal end to
+    end.
     """
+    from neoswga.core.exceptions import InvalidDesignRequest
+
     sites = {"small": 9, "large": 100}
     lengths = [40_000, 1_720_000]
 
     assert per_host_metrics.host_site_charge(sites, lengths, SUM) == 109
-    assert per_host_metrics.host_site_charge(sites, lengths, WORST_CASE) == 396
 
-
-def test_the_host_charge_falls_back_rather_than_inventing_a_worst_case():
-    """A host with no length cannot supply a density.
-
-    Dropping it from the maximum would report a worst case computed over the
-    hosts that happened to be measurable, so the pooled sum is charged and the
-    panel is no better off than under `sum`.
-    """
-    sites = {"small": 9, "unknown": 100}
-
-    assert per_host_metrics.host_site_charge(sites, [40_000, 0], WORST_CASE) == 109
-    assert per_host_metrics.host_site_charge(sites, [40_000], WORST_CASE) == 109
+    with pytest.raises(InvalidDesignRequest) as caught:
+        per_host_metrics.host_site_charge(sites, lengths, WORST_CASE)
+    message = str(caught.value)
+    assert "background_weight" in message
+    assert "What would settle it" in message
 
 
 # ----------------------------------------------------------------------

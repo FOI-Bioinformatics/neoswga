@@ -113,6 +113,14 @@ class BackgroundAwareBaseOptimizer(BaseOptimizer):
             **kwargs,
         )
 
+        # Refused before the inner optimizer exists, for a caller that reached
+        # this class directly rather than through `run_optimization`'s gate: the
+        # host term below ranks on a site count scaled by `background_weight`,
+        # and no measurement establishes that weight under the per-host reading.
+        from neoswga.core.per_host_metrics import refuse_uncalibrated_host_term
+
+        refuse_uncalibrated_host_term(self.name, self.background_aggregate, len(self.bg_prefixes))
+
         # Delegate to HybridOptimizer with background pruning enabled
         from neoswga.core.hybrid_optimizer import HybridOptimizer
 
