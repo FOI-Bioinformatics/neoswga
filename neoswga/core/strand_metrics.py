@@ -1,7 +1,7 @@
 """Collecting the strand quantities, all of them, for every genome.
 
-`PositionCache.compute_strand_alternation_stats` returns five figures per
-genome. The call site in `base_optimizer._compute_metrics` read two, dropped
+`PositionCache.compute_strand_alternation_stats` returns six figures per
+genome (five until 2026-10-29, when the per-strand gap evenness was added). The call site in `base_optimizer._compute_metrics` read two, dropped
 three, and `break`ed after the first foreground prefix, so a pan-target design
 reported one target's strand structure as the panel's and the host's was never
 computed although the same method would have produced it.
@@ -43,6 +43,11 @@ STRAND_KEYS: tuple[str, ...] = (
     "strand_alternation_score",
     "strand_coverage_ratio",
     "longest_same_strand_run",
+    # Per-strand gap evenness: swga 2.0's `off_gap_gini` on a host and
+    # `on_gap_gini` on a target. Reported, never scored; see
+    # `core/background_evenness.py` for the fitted model and why its
+    # coefficient is not imported.
+    "gap_gini_per_strand",
 )
 
 

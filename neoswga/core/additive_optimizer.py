@@ -150,7 +150,13 @@ class AdditiveRecommendation:
             lines.append(f"  Glycerol: {self.glycerol_percent:.1f}%")
         lines.append(f"  Mg2+: {self.mg_conc:.1f} mM")
         if self.ssb:
-            lines.append("  SSB: Yes (recommended)")
+            lines.append("  SSB: Yes (recommended for the reaction)")
+            lines.append("       note: this tool's design model does not use SSB. It has")
+            lines.append("       no melting-temperature term, so it does not reach the")
+            lines.append("       candidate gate or the occupancy scoring the default")
+            lines.append("       `hybrid` method selects on. It changes a delivered panel")
+            lines.append("       only under --optimization-method=network with a")
+            lines.append("       mechanistic weight (--use-mechanistic-model).")
 
         lines.extend(
             [
@@ -370,22 +376,53 @@ class AdditiveOptimizer:
 
         return filtered
 
+    @staticmethod
+    def _additive_is_usable(field: str) -> bool:
+        """Whether a design could accept this additive, per the evidence registry.
+
+        False when the additive's duplex model is `absent` -- the one status
+        `resolve_design_request` refuses. Logged rather than silent, so a run
+        that asked for glycerol can see why its grid did not include it.
+        """
+        from neoswga.core.model_evidence import refuses_additive
+
+        if refuses_additive(field):
+            logger.warning(
+                "%s is not included in the additive search: a design refuses it "
+                "because no term models its melting-temperature effect "
+                "(evidence status 'absent'). Recommending it would propose a "
+                "recipe the pipeline rejects.",
+                field,
+            )
+            return False
+        return True
+
     def _generate_combinations(
         self,
         ranges: dict[str, list[float]],
         include_formamide: bool = False,
         include_glycerol: bool = False,
     ) -> list[dict[str, float]]:
-        """Generate all additive combinations."""
+        """Generate all additive combinations.
+
+        An optional additive is admitted to the grid only if a design could
+        then accept it. `resolve_design_request` refuses any additive whose
+        duplex effect the model records as `absent` (glycerol today), so
+        proposing a non-zero dose of one would hand the user a recipe their own
+        `optimize`/`design` run rejects. The registry is the single source of
+        truth both this optimiser and that refusal consult, so they cannot
+        drift. A base additive is never `absent`, so only the optional ones are
+        gated.
+        """
         # Base additives
         keys = ["dmso_percent", "betaine_m", "trehalose_m", "mg_conc"]
         value_lists = [ranges.get(k, [0.0]) for k in keys]
 
-        # Optional additives
-        if include_formamide:
+        # Optional additives, each admitted only if the design would accept it.
+        if include_formamide and self._additive_is_usable("formamide_percent"):
             keys.append("formamide_percent")
             value_lists.append([0.0, 1.0, 2.0])
-        if include_glycerol:
+        if include_glycerol and self._additive_is_usable("glycerol_percent"):
             keys.append("glycerol_percent")
             value_lists.append([0.0, 5.0, 10.0])
 
@@ -517,23 +554,25 @@ class AdditiveOptimizer:
         if dmso > 0:
             rationale_parts.append(
                 f"DMSO at {dmso:.0f}% helps melt secondary structure "
-                f"(accessibility +{(effects.accessibility_factor-0.5)*100:.0f}%)"
+                f"(accessibility +{(effects.accessibility_factor - 0.5) * 100:.0f}%)"
             )
         if betaine > 0:
             rationale_parts.append(
-                f"Betaine at {betaine:.1f}M normalizes GC effects and " f"stabilizes enzyme"
+                f"Betaine at {betaine:.1f}M normalizes GC effects and stabilizes enzyme"
             )
         if trehalose > 0:
             rationale_parts.append(
-                f"Trehalose at {trehalose:.2f}M provides additional " f"enzyme stabilization"
+                f"Trehalose at {trehalose:.2f}M provides additional enzyme stabilization"
             )
         if template_gc > 0.55:
             rationale_parts.append(
-                f"High-GC template ({template_gc:.0%}) benefits from " f"GC-normalizing additives"
+                f"High-GC template ({template_gc:.0%}) benefits from GC-normalizing additives"
             )
         if ssb:
             rationale_parts.append(
-                "SSB recommended for high-GC templates to maintain " "single-stranded regions"
+                "SSB is suggested for high-GC templates to maintain "
+                "single-stranded regions, but the design model does not use it "
+                "on the default method (see the note beside the recommendation)"
             )
 
         rationale = (

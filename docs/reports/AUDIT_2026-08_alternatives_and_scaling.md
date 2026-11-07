@@ -384,7 +384,7 @@ target it removed no primer.
 
 `network` is the only method that genuinely searches elsewhere, and on this
 dataset it is worse on both axes at once: 20% less coverage at 46x the cost at
-S=32. The published guidance in `docs/optimization_guide.md` puts it at
+S=32. The published guidance in `docs/guides/optimization_guide.md` puts it at
 "20-60s"; measured, it is 377 s.
 
 **`clique` is the one method that is not dominated**, and the result suggests a
@@ -565,7 +565,7 @@ advertises a "10-100x speedup". That line should be corrected.
 
 ### F11 (MEDIUM) The optimizer documentation describes a different tool — FIXED
 
-> **Fixed.** `docs/optimization_guide.md` no longer documents optimizers that do
+> **Fixed.** `docs/guides/optimization_guide.md` no longer documents optimizers that do
 > not exist: the `genetic`, `moea`, `milp` and `greedy` sections and table rows
 > are gone, as is a "Pipeline Methods" section offering four names
 > (`coverage-then-dimerfree`, `dimerfree-scored`, `bg-prefilter`,
@@ -579,7 +579,7 @@ advertises a "10-100x speedup". That line should be corrected.
 > is also gone. It was the same unmeasured-claim family as the GPU line, and
 > inverted: `network` measured 46x *slower* than `dominating-set` at 32 primers,
 > for 20% less coverage. The same claim was corrected in
-> `docs/development/optimizers.md` and `docs/MODULE_REFERENCE.md`.
+> `docs/development/optimizers.md` and `docs/reference/MODULE_REFERENCE.md`.
 >
 > **Outstanding, and larger than it first appeared.** `optimization_guide.md`
 > was the user-facing guide and is now correct, but the three deleted optimizer

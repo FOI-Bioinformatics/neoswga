@@ -9,9 +9,17 @@ and `tests/test_every_cli_option_has_an_effect.py` exist.
 The default stays `symmetric`. Every figure recorded in `docs/validation/` was
 produced under it, and the reach was fitted alongside it -- 2.9-4.6 kb symmetric
 against 4.4-6.7 directional, measured in
-`docs/validation/2026-09-23-reach-refit-directional.md`. Setting the geometry
-without moving the reach recalibrates silently, which is why they are separate
-keys and why neither has a new default here.
+`docs/validation/2026-09-23-reach-refit-directional.md`.
+
+Setting the geometry without moving the reach recalibrates silently, which is
+why they are separate keys and why neither has a new default here. **Since
+2026-10-29 it is refused rather than warned about**: a directional run must
+name its own `coverage_reach`, and nothing is substituted because the
+directional band was fitted for phi29 against one published outcome.
+`tests/test_both_coverage_geometries_are_reported.py` covers the refusal and
+the two figures the delivered panel is now reported under;
+`docs/validation/2026-10-29-the-coverage-geometry-decision.md` records why the
+default did not move.
 """
 
 import json
@@ -77,7 +85,13 @@ def test_the_schema_names_the_permitted_values():
 
     assert entry["type"] == "string"
     assert entry["enum"] == ["symmetric", "directional"]
-    assert "recalibrat" in entry["description"], "the description must warn about the reach"
+    # Until 2026-10-29 this only had to WARN that setting the geometry without
+    # moving the reach recalibrates silently. It is now refused, so the
+    # description has to say that instead: a warning a user can walk past is
+    # the weaker half of the pair.
+    description = entry["description"]
+    assert "REQUIRES an explicit coverage_reach" in description
+    assert "refused without one" in description
 
 
 def test_params_json_reaches_the_config(tmp_path, monkeypatch):

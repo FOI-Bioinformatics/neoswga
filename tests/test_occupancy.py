@@ -116,6 +116,48 @@ def test_the_penalty_comes_from_configuration():
 
 
 # ----------------------------------------------------------------------
+# The depth, where 0 is a value and None is a sentinel
+# ----------------------------------------------------------------------
+
+
+class _Config:
+    """Only the attribute under test, so a default cannot come from elsewhere."""
+
+    def __init__(self, **kwargs):
+        self.__dict__.update(kwargs)
+
+
+def test_an_unset_depth_takes_the_documented_default():
+    """The call site read `int(getattr(config, "max_mismatches", 1) or 0)`, and
+    `or` turns an unset depth into 0 -- no mismatch class counted at all, which
+    is the favourable-looking direction for a background load."""
+    from neoswga.core.occupancy import resolve_max_mismatches
+
+    assert resolve_max_mismatches(_Config(max_mismatches=None)) == 1
+    assert resolve_max_mismatches(_Config()) == 1
+
+
+def test_an_explicit_zero_is_honoured_as_exact_match_counting():
+    """Zero is a value: it is the reduction the occupancy model is checked
+    against, so it must not be read as "unset"."""
+    from neoswga.core.occupancy import resolve_max_mismatches
+
+    assert resolve_max_mismatches(_Config(max_mismatches=0)) == 0
+
+
+def test_a_configured_depth_is_passed_through():
+    from neoswga.core.occupancy import resolve_max_mismatches
+
+    assert resolve_max_mismatches(_Config(max_mismatches=2)) == 2
+
+
+def test_a_negative_depth_cannot_make_a_range_run_backwards():
+    from neoswga.core.occupancy import resolve_max_mismatches
+
+    assert resolve_max_mismatches(_Config(max_mismatches=-3)) == 0
+
+
+# ----------------------------------------------------------------------
 # The thesis
 # ----------------------------------------------------------------------
 

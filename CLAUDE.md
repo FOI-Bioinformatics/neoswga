@@ -19,7 +19,7 @@ the measurements, was moved out on 2026-10-01 and is read on demand:
 |---|---|
 | [docs/development/implementation-notes.md](docs/development/implementation-notes.md) | Per module, output file, command and params.json key: what it does and why |
 | [docs/development/design-contracts.md](docs/development/design-contracts.md) | The rules a design run enforces, each with the failure it was written for |
-| [docs/development/KNOWN_ISSUES.md](docs/development/KNOWN_ISSUES.md) | Known Issues 1-24 in full. The numbering is stable; code and tests cite it |
+| [docs/development/KNOWN_ISSUES.md](docs/development/KNOWN_ISSUES.md) | Known Issues 1-25 in full. The numbering is stable; code and tests cite it |
 | [docs/params-reference.md](docs/params-reference.md) | Every params.json key, generated from the schema by `scripts/render_schema.py` |
 | `docs/validation/` | One measurement record per claim or default |
 | `.claude/skills/neoswga-cli/SKILL.md` | Commands outside the four-step pipeline; loads on demand |
@@ -36,7 +36,7 @@ When adding a record, add it there and keep this file to a line or two.
 
 | Module | Note |
 |---|---|
-| `unified_optimizer.py` | Dispatches the optimizers: `hybrid_optimizer`, `dominating_set_adapter` + `dominating_set_optimizer`, `network_optimizer`, `background_aware_optimizer`, with `minimal_primer_selector` as a post-process. `background-aware` is `BackgroundAwareBaseOptimizer`, which delegates to `HybridOptimizer` |
+| `unified_optimizer.py` | Dispatches the optimizers: `hybrid_optimizer`, `dominating_set_adapter` + `dominating_set_optimizer`, `network_optimizer`, `background_aware_optimizer`, `clique_optimizer`. The `--minimize-primers` post-process is `optimization_service.reduce_result` (via `run_panel_search(minimize=True)`), not a separate module. `background-aware` is `BackgroundAwareBaseOptimizer`, which delegates to `HybridOptimizer` |
 | `exceptions.py` | `StepPrerequisiteError`, `StepValidationResult` and the `DesignError` family. Keep it free of dependencies beyond `typing` and `dataclasses`; `core/pipeline.py` re-exports the same objects |
 | `occupancy_coverage.py`, `selectivity.py` | Extracted from `base_optimizer` when it reached its size budget; re-exported from it as the same objects |
 | `lazy_dimer.py` | `dimer_screen(pool, max_dimer_bp)` is the one decision about dense matrix against pairwise screen (threshold 4,000 candidates) |
@@ -48,12 +48,14 @@ When adding a record, add it there and keep this file to a line or two.
 | `design_request.py`, `design_result.py`, `panel_evaluation.py` | The resolved frozen request and its hash; run state against termination reason against qualification; one `PanelAssessment` |
 | `pool_planner.py`, `pool_objective.py`, `panel_acceptance.py` | `plan-pool`, the shared objective and `shortfall`, the configured panel limits. `repair_panel` is the one bounded repair |
 | `bam_coverage.py`, `depth_policy.py` | `open_alignment` is the only door to a BAM or CRAM |
+| `coverage_geometries.py` | Both coverage windows for the DELIVERED panel, once after the search, labelled with the one the run scored on. The symmetric column is `fg_coverage` |
+| `background_evenness.py` | swga 2.0's `off_gap_gini`: the per-strand gap Gini, computed from positions the strand pass already fetched. Reported, in no score |
 | `delivered_set.py` | Which `set_index` a command reads (default 0) |
 | `concurrent_runs.py` | Translates the HDF5 lock error from two runs sharing a directory |
 | `registry/model_evidence.json` | Per chemistry constant, its evidence status and supported domain; checked in `resolve_design_request` |
 | `gpu_acceleration.py` | Not reached by any pipeline stage; `--use-gpu` says so |
 | `advanced_features.py`, `gc_adaptive_strategy.py` | Read as optional but are wired into kept paths |
-| `report/` | Quality reports. Reads the saved panel assessment last, and `effective_conditions` from the run manifest in preference to params.json |
+| `report/` | Quality reports. Reads the saved panel assessment last, and `effective_conditions` from the run manifest in preference to params.json. `strand_section.py` renders every strand figure for every genome that answered |
 | `models/random_forest_filter.skops` | Retired from the default path; reachable through `--amp-model` |
 
 ### Data flow
@@ -133,6 +135,21 @@ per-primer reach (about 3 kb for phi29), while network connectivity uses
 processivity (about 70 kb). A hybrid run prints two coverage figures, labelled
 `(estimated, binned)` and `(measured)`; the measured one is authoritative.
 
+**Coverage geometry**: `coverage_geometry` is `symmetric` by default, which
+credits `[pos-r, pos+r)` and is what every recorded figure was produced under
+and what the reach was fitted against. `directional` credits the one way the
+polymerase extends and **requires an explicit `coverage_reach`** -- it is
+refused without one, and no value is substituted because the directional band
+(4,354-6,710 bp) was fitted for phi29 alone. `optimize` reports the delivered
+panel under BOTH windows, in the log and in `coverage_geometries` in the
+summary; the symmetric figure overstates the directional one by 1.27x to 1.85x
+on synthetic sequence and by 1.49x to 1.80x on a real one (*E. coli* against
+human chr1). Real sites CLUSTER, so the directional window costs 36% of target
+coverage rather than half, while isolated host sites halve exactly -- the
+geometry is not one factor applied to every coverage figure.
+`docs/validation/2026-10-29-the-coverage-geometry-decision.md`,
+`docs/validation/2026-11-02-the-geometry-on-a-real-genome.md`.
+
 ### Choosing the set size
 
 `num_primers` is a request, not a guarantee. The delivered panel is never
@@ -167,20 +184,57 @@ measurements: implementation-notes.md.
   `min_tm`/`max_tm`, and the additives `dmso_percent`, `betaine_m`,
   `trehalose_m`, `ethanol_percent`, `urea_m`, `tmac_m`, `formamide_percent`.
   A design that sets glycerol is refused: nothing computes its Tm effect.
+  `--preset` used to reach only the `parameter` globals, so it met NO guard:
+  not `require_model_support` (which reads the params FILE) and not the
+  key-presence guards (which read `_json_data`). A preset's keys now join
+  `_json_data` via `parameter._preset_overlay`, and `run_step2` validates the
+  resolved configuration with `_common.validate_effective_chemistry`. Two
+  consequences this had: glycerol was recorded in `effective_conditions` while
+  entering no Tm, and eight of eleven presets set an enzyme whose oligo range
+  excludes the 6-12 window -- `--preset bst` ran 7-12mers at 63 C against a
+  15-25 nt parameter set. Those eight now refuse unless `min_k`/`max_k` match
+  the enzyme (`2026-11-01-the-preset-path-bypassed-every-guard.md`,
+  `2026-11-01-a-preset-carried-an-additive-a-design-refuses.md`).
 - **Selection**: `num_primers`/`target_set_size` (6), `max_dimer_bp` (3,
   maximum 7), `allow_dimer_relaxation` (false), `max_dimer_dg` (unset; can only
-  tighten the screen), `max_sets` (5), `iterations` (8; bounds the search for
+  tighten the screen — consulted only for pairs the base-pair screen already
+  cleared, and evaluated at the REACTION temperature, not 37 C. Every method
+  honours it; `clique` only since 2026-10-26), `max_sets` (5), `iterations` (8; bounds the search for
   alternatives, not the primary selection), `coverage_metric`,
   `min_per_target_coverage` (checked and reported, not repaired).
 - **Mismatch weighting**: `mismatch_penalty` (4.0 C, uniform) and
   `mismatch_model` (`uniform` default, `position-dependent`,
   `position-dependent-3prime`; params.json only, no flag, off by default). The
   figures are in `docs/validation/2026-10-02-position-dependent-mismatch.md`.
-  `max_mismatches` (1) bounds the depth; distance 2 costs about 19x.
-- **Search control**: `objective_scan_width` (64), `max_frontier_refills` (4),
+  `max_mismatches` (1) bounds the depth; distance 2 costs about 19x. The
+  mismatch classes are disjoint and a site falls in the class of its BEST
+  match: `mismatch_counts` walks them nearest first, because one stored k-mer
+  can be a 1-mismatch neighbour read one way and a 2-mismatch neighbour read
+  the other (`2026-11-01-mismatch-classes-across-strands.md`).
+- **Search control**: `objective_scan_width` (64; an internal `OptimizerConfig`
+  default, NOT a params.json key, and read only by the `plan-pool` repair's
+  objective-scored scan, which needs coverage bins — it is inert on the
+  `optimize` refinement, bounded there by `swap_max_evaluations`),
+  `max_frontier_refills` (4),
   `swap_max_evaluations` (per stage, not a total), `total_search_evaluations`
   (the only total; None by default, so by default no total bound exists),
-  `stage1_objective_width` (None; off by default after measurement).
+  `stage1_objective_width` (None; off by default after measurement),
+  `stage2_tm_weight` (None; the Tm axis in Stage 2's removal ranking, off by
+  default after measurement, and deliberately not the profile's `tm_weight`),
+  `stage2_background_weight` (None; the host axis of the SWAP Stage-2 score,
+  inert on the default network refinement. Refused above zero from 2026-10-29
+  to 2026-11-02 because `PoolMetrics` carried no host-coverage fraction; that
+  field costs +48% per evaluation and is 2.05x CHEAPER than the full
+  `compute_metrics` the search already falls back to for a host limit, so it
+  carries it now and the key RUNS. Still refused above zero with no background
+  genome, where the fraction is absent rather than zero. Off by default because
+  the axis does not reliably reduce what it weights: at 12 primers 0.25/0.5 cut
+  host coverage 0.0220 to 0.0160 and 1.0 changed nothing, while at 24 primers
+  0.25/0.5 RAISED it and only 1.0 cut it -- the sign depends on the panel size.
+  Known Issue 14 is NOT closed, and its reason changed from "reaches no
+  selection" to "reaching it does not demonstrably help".
+  `docs/validation/2026-11-02-what-host-coverage-would-cost-the-search.md`,
+  `docs/validation/2026-11-02-a-weighted-host-axis-measured.md`).
 - **Several hosts**: `background_aggregate` (`sum` default, every host pooled as
   today; `worst-case` judges each host on its own length). params.json only, no
   flag. The step-2 gate reads it (`core/background_gate.py`) and so does step 4
@@ -244,6 +298,20 @@ Each of these was learned from a defect; the record is in the linked documents.
   `test_cli_defaults_do_not_beat_params_json.py`,
   `test_params_json_routes_optional_keys.py`,
   `test_design_options_have_effect.py`. Their allowlists may only shrink.
+- A wrapper can carry a value on its config and drop it when it builds the
+  inner engine that decides, which every ratchet above still passes. When an
+  adapter gains a parameter, diff the inner's `__init__` parameters against
+  what the adapter passes or sets: that found `stage2_tm_weight` inert on
+  every CLI `hybrid` run and the dominating-set dimer screen stuck at 37 C.
+  `test_optimizer_config_reaches_optimizers.py` holds one assertion per seam.
+- `unified_optimizer` passes `conditions` and does NOT pass `polymerase` or
+  `reaction_temp`, so an optimizer that wants either resolves it from
+  `conditions`: `stage2_ranking.resolve_reaction`, precedence explicit >
+  conditions > preset. A constructor default that is a real value rather than
+  a `None` sentinel beats the file exactly as an argparse default does — that
+  literal `"phi29"` ran every `hybrid` reaction as phi29 at 30 C, skipping the
+  Stage-0 screen for `bst` and `equiphi29`.
+  `docs/validation/2026-10-26-hybrid-ran-every-reaction-as-phi29.md`.
 - Do not record this class as closed.
 
 **Ordering and globals.**
@@ -276,7 +344,20 @@ Each of these was learned from a defect; the record is in the linked documents.
   reference.
 - The profile weights `tm_weight` and `uniformity_weight` are inert on
   `hybrid`. Wiring them moves every delivered panel and is a decision, not a
-  repair.
+  repair. `hybrid`'s Stage 2 does carry a Tm axis since 2026-10-26, driven by
+  the separate `stage2_tm_weight` key and off by default: weighted, it lowers
+  mean Tm deviation on both single- and mixed-length pools by trading coverage,
+  by the amount of the weight. The Stage-1 floor was changed the same day to
+  compare on every axis Stage 2 optimized (dominance) instead of raw coverage,
+  so it no longer discards a Tm-for-coverage trade; a run with no objective and
+  no Tm term stays on the single coverage axis and is unchanged.
+  `docs/validation/2026-10-26-wiring-the-tm-term.md`.
+- `hybrid` Stage 2 is deterministic since 2026-10-26: its
+  `algebraic_connectivity` calls are seeded (`_CONNECTIVITY_SEED`), so one input
+  gives one delivered panel across re-runs, machines and `pytest -n 8`. It had
+  drawn an unseeded random start and delivered 2-3 panels for one input. Keep
+  the seed; `tests/test_hybrid_optimizer_run.py` asserts every call carries it.
+  `docs/validation/2026-10-26-stage2-determinism.md`.
 
 ## Known Issues (index)
 
@@ -286,7 +367,13 @@ Full text: [docs/development/KNOWN_ISSUES.md](docs/development/KNOWN_ISSUES.md).
    k=12 is minutes and a 138 MB table. Measure before reaching for it.
 2. **skops**: the format is version-tolerant, its default trust list is not;
    `rf_preprocessing._TRUSTED_MODEL_TYPES` names what a model may reconstruct.
-3. **Memory**: `filter` loads all background k-mers.
+3. **Memory**: a background table is held as a dict on the OCCUPANCY path,
+   not by `filter`'s frequency gate, which has batched via `counts_for`
+   since 2026-09-25. A design reads 0.22% of what it holds (515 MB for
+   4.9M entries; ~1.2 GB projected at host scale). The `lru_cache` turns
+   43,392 calls into 4 table reads, so the fix is an accumulating batched
+   cache, not a caller move
+   (`2026-11-02-what-a-design-reads-of-a-background-table.md`).
 4. **PositionCache strand** is `'forward'`, `'reverse'` or `'both'`, not `+`/`-`.
 5. **pyahocorasick past 2 Gb** finds nothing, silently. The chunked scan works
    around it; a canary test fails when the installed version changes.
@@ -303,7 +390,15 @@ Full text: [docs/development/KNOWN_ISSUES.md](docs/development/KNOWN_ISSUES.md).
      constraint-aware (reference figure for the Wolbachia pool: density 60.112
      at coverage 0.6535).
 8. **Inert options**: declared, documented, read by nothing. Found repeatedly,
-   in flags, schema keys, capabilities and arguments.
+   in flags, schema keys, capabilities, arguments, and (2026-10-26) in the
+   wrapper/inner seam where an adapter drops a config value before the engine
+   that decides, and in one method ignoring a base-config key every other
+   method honoured (`clique` read no `max_dimer_dg`). A GUARD can miss a door
+   too (2026-11-01): `--preset` reached only the `parameter` globals, so it met
+   neither `require_model_support` (reads the params FILE) nor the
+   key-presence guards (read `_json_data`) -- eight of eleven presets ran an
+   enzyme outside its own oligo range, and one overrode the GC-adaptive
+   betaine it had just logged.
 9. **Evenness needs sites**: Gini is NaN below `min_gini_sites`.
 10. **The candidate loader** uses the same Tm as the gate.
 11. **Near-duplicate primers**: the redundancy threshold exists and is disabled
@@ -311,8 +406,15 @@ Full text: [docs/development/KNOWN_ISSUES.md](docs/development/KNOWN_ISSUES.md).
 12. **CLI startup** no longer imports scikit-learn.
 13. **Unindexed prefix**: `PositionCache.get_positions` raises
     `MissingPositionsError` instead of answering with an empty array.
-14. **Reading the background is not acting on it**. `_network_refine` carries
-    the host term and `_swap_refine` reads the objective; neither carries both.
+14. **Reading the background is not acting on it** -- open, reason CHANGED
+    2026-11-02. `stage2_background_weight` could not run until `PoolMetrics`
+    carried a host-coverage fraction; it costs +48% per evaluation and is
+    cheaper than the fallback already in use, so the field is there and the key
+    RUNS. Measured, the axis does not reliably reduce what it weights: the sign
+    of its effect depends on the panel size. So it is no longer "reaches no
+    selection" but "reaching it does not demonstrably help", and the key stays
+    off. Still refused with no background genome.
+    `docs/validation/2026-11-02-a-weighted-host-axis-measured.md`.
     Establish which stage produces the delivered panel before claiming a term
     had an effect: for `background-aware` it is Stage 2, `_network_refine`.
 15. **`require_entries`** asks for an entry on every prefix, not a hit on any.
@@ -321,10 +423,24 @@ Full text: [docs/development/KNOWN_ISSUES.md](docs/development/KNOWN_ISSUES.md).
 17. **The phi29 30 C pool cannot discriminate**, and gating candidates on
     occupancy gives a worse panel. The lever is the reaction. `filter` reports
     the regime and does not enforce it.
-18. **`max_gap` and `bg_coverage`** are constrainable and enter no score.
-    Strand figures are `None` when unmeasurable.
+18. **`max_gap` and `bg_coverage`** are constrainable. `max_gap` enters no
+    score and deliberately does not: the field does not agree gap statistics
+    belong in the objective. `bg_coverage` enters no score either: the attempt
+    to weight it into swap Stage 2 could not run (see Known Issue 14), and the
+    search objective does not carry it. Neither enters `normalized_score`.
+    `off_gap_gini` is computed since 2026-10-29 (`background_evenness.py`),
+    reported as `host_gap_evenness` and deliberately in no score.
+    Strand figures are `None` when unmeasurable, and the report says "not
+    measurable" rather than 0.00 since 2026-10-29; it renders all five per
+    genome, labelled target or host, and flags only a fact and a mechanism
+    because no strand threshold has a reference.
 19. **One set, not every alternative**: see `delivered_set.py`.
-20. **Mixed oligo lengths** work; on the one pair measured they bought nothing.
+20. **Mixed oligo lengths** work; on two pairs they bought nothing, and on the
+    second the mixed arm did not mix: the k 10-12 shortlist held 0 ten-mers and
+    2 eleven-mers of 300, so the filter chose the length. Choosing k beats
+    choosing to mix by about 290x there. "Lands between the single lengths" is
+    the first pair's result, not a property
+    (`2026-11-02-mixed-length-on-a-second-pair.md`).
 21. **HDF5 lock error (errno 35)** is two processes sharing a data directory.
     Do not suggest `HDF5_USE_FILE_LOCKING=FALSE`.
 22. **Bloom path**: capacity bounds distinct k-mers; filters record their k
@@ -335,6 +451,15 @@ Full text: [docs/development/KNOWN_ISSUES.md](docs/development/KNOWN_ISSUES.md).
 24. **KMC3 preferred**, tables read as databases. About 7x faster and about
     18x the memory of jellyfish on hg38 at k=12. A host with no table is
     scanned by `query_scan`.
+25. **The symmetric coverage window overstates `fg_coverage` by 1.3x to 1.9x**
+    on synthetic sequence, 1.49x to 1.80x on a real genome. Disclosed, not
+    fixed: the reach was fitted against it, every recorded figure uses it, and
+    a real fix changes selection. `optimize` reports both windows;
+    `directional` requires an explicit `coverage_reach` and is refused without
+    one. On a real target the directional window costs 36% of target coverage,
+    not half, because sites cluster, while isolated host sites halve exactly,
+    so no single factor rescales a coverage target and a host limit together
+    (`2026-11-02-the-geometry-on-a-real-genome.md`).
 
 ## Reference genomes available locally
 
@@ -373,6 +498,17 @@ the three hosts (*L. plantarum*, *Drosophila*, hg38), written by
 `scripts/build_diversity_panel_manifest.py` with a measured length, record
 count and SHA-256 per genome. `scripts/fetch_reference_genomes.py` fetches the
 ones not already on disk and verifies them against a recorded checksum.
+
+**From a cloud container, most of those URLs are refused.** ftp.ncbi.nlm.nih.gov,
+hgdownload.soe.ucsc.edu, ftp.ebi.ac.uk and zenodo.org all answered 403 to
+CONNECT through the egress proxy on 2026-11-02; the AWS iGenomes mirror
+(`ngi-igenomes.s3.amazonaws.com`) did not. Three entries use it and carry their
+own checksums: `ecoli_k12` (4.64 Mb, real bacterial target), `human_chr1`
+(249 Mb, a host a 12-mer cannot avoid) and `human_chr21_igenomes` (a SEPARATE
+key: same bases as `human_chr21`, different bytes, so it cannot be mistaken for
+the UCSC file anything else was measured against). A 12-mer avoids 47 Mb and
+not 249 Mb, which is the difference between a dead and a live background axis
+(`2026-11-02-the-geometry-on-a-real-genome.md`).
 
 ## Testing
 

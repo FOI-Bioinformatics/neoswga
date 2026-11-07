@@ -392,8 +392,8 @@ rule than either dataset alone yields, and it is only visible because there are
 now two benchmarks that disagree.
 
 This revises the conclusion drawn from the Prevotella data alone, which had been
-carried into the swga-chemistry skill as a general claim. Both the skill and
-`references/troubleshooting.md` are corrected.
+carried into the swga-chemistry skill as a general claim. Both the skill and its own
+`troubleshooting.md` reference are corrected.
 
 ## A trap worth recording
 

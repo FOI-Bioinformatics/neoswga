@@ -275,6 +275,57 @@ def _refine_with_bounded_scan(
             )
 
 
+def _require_host_coverage(objective, panel) -> None:
+    """Refuse a weighted host axis with nothing to measure it against.
+
+    **What this refuses changed on 2026-11-02.** From 2026-10-29 it refused
+    every positive weight, because no production objective carried
+    `bg_coverage`: `PoolMetrics` had five fields on the grounds that computing
+    background coverage was 27.6 s of the 29.7 s that module exists to remove
+    from the search loop. Measured, the field costs +48% per evaluation and is
+    2.05x CHEAPER than the full `compute_metrics` the search already falls back
+    to whenever a host-coverage limit is set -- because the positions were
+    already gathered for `total_bg_sites`. So `PoolMetrics` carries it and the
+    blanket refusal is gone.
+    `docs/validation/2026-11-02-what-host-coverage-would-cost-the-search.md`.
+
+    What remains is the case the refusal was right about: a weight above zero
+    with **no background genome**. `bg_coverage` is `None` there rather than
+    0.0, and trading foreground coverage against a fabricated zero host
+    coverage is exactly the substitution the rules forbid. An objective
+    carrying no such attribute at all is still refused too, since a custom one
+    need not have it.
+    """
+    from neoswga.core.exceptions import InvalidDesignRequest
+
+    if objective is None:
+        raise InvalidDesignRequest(
+            "stage2_background_weight",
+            "it weighs host coverage against foreground coverage, and this "
+            "refinement was given no objective to measure either on",
+        )
+    metrics = objective.metrics(list(panel))
+    if not hasattr(metrics, "bg_coverage"):
+        raise InvalidDesignRequest(
+            "stage2_background_weight",
+            "it requires a host-coverage fraction and "
+            f"{type(metrics).__name__} does not carry one. Unset the key to "
+            "keep the lexicographic host tie-break, which is the shipped "
+            "default. See "
+            "docs/validation/2026-11-02-what-host-coverage-would-cost-the-search.md",
+        )
+    if getattr(metrics, "bg_coverage", None) is None:
+        raise InvalidDesignRequest(
+            "stage2_background_weight",
+            "it trades foreground coverage against HOST coverage, and this "
+            "design has no background genome to measure host coverage "
+            "against, so the quantity is absent rather than zero. Weighting "
+            "against a fabricated zero would make every panel look equally "
+            "specific. Supply a background genome, or unset the key to keep "
+            "the lexicographic host tie-break",
+        )
+
+
 def refine_by_swaps(
     selected,
     candidates,
@@ -286,6 +337,7 @@ def refine_by_swaps(
     background_sites=None,
     objective=None,
     objective_scan_width=None,
+    background_weight=0.0,
     max_evaluations=10000,
     max_seconds=10.0,
 ):
@@ -339,6 +391,8 @@ def refine_by_swaps(
     binless = _validate_inputs(
         bins_by_primer, bin_weights, objective, objective_scan_width, max_evaluations, max_seconds
     )
+    if background_weight and background_weight > 0:
+        _require_host_coverage(objective, selected)
     bounded = objective_scan_width is not None
     bins_by_primer = {} if bins_by_primer is None else bins_by_primer
     bin_weights = {} if bin_weights is None else bin_weights
@@ -357,18 +411,34 @@ def refine_by_swaps(
     reason = "local_optimum"
 
     def _score(panel):
-        """Lexicographic, constraints first. Higher is better throughout."""
-        # `-shortfall` rather than `-len(violations)`: counting ties whenever
-        # two panels fail the same single constraint, and coverage then decides,
-        # which let more search move a panel further from the limit it was
-        # chasing. Zero shortfall is exactly feasibility, so a feasible panel
-        # still outranks every infeasible one however much coverage that would
-        # buy.
-        return (
-            -objective.shortfall(panel),
-            objective.coverage(panel),
-            -objective.metrics(panel).total_bg_sites,
-        )
+        """Lexicographic, constraints first. Higher is better throughout.
+
+        `-shortfall` rather than `-len(violations)`: counting ties whenever two
+        panels fail the same single constraint, and coverage then decides, which
+        let more search move a panel further from the limit it was chasing. Zero
+        shortfall is exactly feasibility, so a feasible panel still outranks
+        every infeasible one however much coverage that would buy.
+
+        With `background_weight > 0` the host term becomes a WEIGHTED axis rather
+        than the lexicographic tie-break below (Known Issue 14): fg coverage is
+        traded against host coverage. Off by default (`background_weight == 0`),
+        the score is the lexicographic tuple it has always been, bit for bit.
+
+        The weighted form needs a host-coverage FRACTION, which `PoolMetrics`
+        has carried since 2026-11-02 -- measured at +48% per evaluation, and
+        cheaper than the full metrics the search already uses for a host limit.
+        Before that every positive weight was refused. What
+        `_require_host_coverage` still refuses is a weight with no background
+        genome, where the fraction is `None` rather than 0.0.
+        `docs/validation/2026-11-02-what-host-coverage-would-cost-the-search.md`.
+        """
+        shortfall = -objective.shortfall(panel)
+        coverage = objective.coverage(panel)
+        metrics = objective.metrics(panel)
+        host = getattr(metrics, "bg_coverage", None)
+        if background_weight > 0 and coverage is not None and host is not None:
+            return (shortfall, coverage - background_weight * host, 0.0)
+        return (shortfall, coverage, -metrics.total_bg_sites)
 
     if bounded:
         return _refine_with_bounded_scan(
@@ -508,6 +578,7 @@ def refine_hybrid_stage2(optimizer, primers, candidates, fixed_primers):
         fixed_primers=fixed_primers,
         background_sites=background,
         objective=objective,
+        background_weight=float(getattr(optimizer, "stage2_background_weight", None) or 0.0),
         max_evaluations=optimizer.swap_max_evaluations,
         max_seconds=optimizer.swap_max_seconds,
     )

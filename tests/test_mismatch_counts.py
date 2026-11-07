@@ -24,7 +24,13 @@ candidate list is itself read out of those files and so is already canonical.
 
 **Double counting.** Variants are summed over distinct canonical forms, because
 two different 1-mismatch variants can share one canonical form when a primer is
-near-palindromic.
+near-palindromic. That handles collisions WITHIN a class. Collisions ACROSS
+classes are the other half, fixed 2026-11-01 and covered at the bottom of this
+file: the same stored k-mer can be a 1-mismatch neighbour of the primer read
+one way and a 2-mismatch neighbour read the other, because the file holds only
+one of each k-mer and its reverse complement. One physical site then landed in
+two classes and `occupancy.weighted_site_load` weighted it at two different
+occupancies.
 """
 
 import pytest
@@ -211,3 +217,115 @@ def test_mismatched_sites_outnumber_exact_ones_at_genome_scale():
         f"near-match load {near} did not exceed exact load {exact}; exact "
         f"counting would not be understating background at all"
     )
+
+
+# ----------------------------------------------------------------------
+# Disjointness ACROSS classes (2026-11-01)
+# ----------------------------------------------------------------------
+#
+# A site is one physical duplex and must be weighted at one occupancy, so it
+# belongs to the class of its BEST match. Canonicalisation is what makes that
+# non-obvious: a count file holds only one of each k-mer and its reverse
+# complement, so the SAME stored k-mer can be a 1-mismatch neighbour of the
+# primer read one way and a 2-mismatch neighbour read the other.
+#
+# `ACTGTATAGT` is such a primer, verified rather than assumed. Its reverse
+# complement is `ACTATACAGT`, and the canonical form `ACTATAAAGT` is reached
+# both as the canonicalisation of the distance-1 variant `ACTTTATAGT` and
+# directly as the distance-2 variant `ACTATAAAGT`.
+
+COLLIDING_PRIMER = "ACTGTATAGT"
+#: The one stored k-mer both classes can reach, and the distinctive count it
+#: carries so a double count is visible in the total rather than inferred.
+SHARED_CANONICAL = "ACTATAAAGT"
+SHARED_COUNT = 1000
+
+
+@pytest.fixture
+def colliding_genome(tmp_path):
+    """A count file holding the shared form and nothing that overlaps it."""
+    prefix = tmp_path / "c"
+    with open(f"{prefix}_10mer_all.txt", "w") as fh:
+        fh.write(f"{canonical_kmer(COLLIDING_PRIMER)} 2\n")
+        fh.write(f"{canonical_kmer(SHARED_CANONICAL)} {SHARED_COUNT}\n")
+    return str(prefix)
+
+
+def test_the_shared_form_is_reachable_from_both_classes(colliding_genome):
+    """The premise of the next three tests, asserted rather than trusted."""
+    from neoswga.core.mismatch_counts import _variants_at_distance
+
+    at_one = {canonical_kmer(v) for v in _variants_at_distance(COLLIDING_PRIMER, 1)}
+    at_two = {canonical_kmer(v) for v in _variants_at_distance(COLLIDING_PRIMER, 2)}
+
+    assert SHARED_CANONICAL in at_one
+    assert SHARED_CANONICAL in at_two
+
+
+def test_a_site_reachable_at_two_distances_is_counted_once(colliding_genome):
+    """Before the fix its count appeared in class 1 AND class 2."""
+    counts = mismatch_class_counts(COLLIDING_PRIMER, [colliding_genome], max_mismatches=2)
+
+    assert counts[1] + counts[2] == SHARED_COUNT, (
+        f"the shared site contributes {counts[1] + counts[2]} across classes "
+        f"1 and 2, but the file holds {SHARED_COUNT} of it"
+    )
+
+
+def test_it_counts_in_the_nearer_class(colliding_genome):
+    """Best match wins: a 1-mismatch duplex is not a 2-mismatch duplex, and
+    the occupancy it is weighted at differs by a whole mismatch penalty."""
+    counts = mismatch_class_counts(COLLIDING_PRIMER, [colliding_genome], max_mismatches=2)
+
+    assert counts[1] == SHARED_COUNT
+    assert counts[2] == 0
+
+
+def test_the_exact_match_still_wins_over_both(colliding_genome):
+    """Class 0 claims first, which is what the old in-loop filter did for the
+    primer's own canonical form and what the ordering now does generally."""
+    counts = mismatch_class_counts(COLLIDING_PRIMER, [colliding_genome], max_mismatches=2)
+
+    assert counts[0] == 2
+
+
+def test_the_default_depth_is_unchanged(colliding_genome):
+    """At `max_mismatches=1` classes 0 and 1 were already disjoint, so no
+    delivered panel moves: the fix is reachable only above the default."""
+    counts = mismatch_class_counts(COLLIDING_PRIMER, [colliding_genome], max_mismatches=1)
+
+    assert counts == {0: 2, 1: SHARED_COUNT}
+
+
+def test_no_class_shares_a_canonical_form_with_another():
+    """Over the primers where the collision actually occurs, not over random
+    ones: a property test that never reaches the case proves nothing."""
+    from neoswga.core.mismatch_counts import _variants_at_distance
+
+    def classes(primer):
+        claimed, out = set(), {}
+        for distance in range(0, 3):
+            if distance == 0:
+                forms = {canonical_kmer(primer)}
+            else:
+                forms = {canonical_kmer(v) for v in _variants_at_distance(primer, distance)}
+            out[distance] = forms - claimed
+            claimed |= forms
+        return out
+
+    colliding = []
+    for primer in ("ACTGTATAGT", "TATGCGTATA", "ATCTGCAAAT"):
+        at_one = {canonical_kmer(v) for v in _variants_at_distance(primer, 1)}
+        at_two = {canonical_kmer(v) for v in _variants_at_distance(primer, 2)}
+        if at_one & at_two:
+            colliding.append(primer)
+
+    assert colliding, "the fixtures should be primers that actually collide"
+    for primer in colliding:
+        by_class = classes(primer)
+        for left in by_class:
+            for right in by_class:
+                if left < right:
+                    assert not (
+                        by_class[left] & by_class[right]
+                    ), f"{primer}: classes {left} and {right} share a form"

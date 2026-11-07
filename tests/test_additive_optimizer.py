@@ -224,6 +224,55 @@ class TestEdgeCases:
         # Very high GC needs SSB
         assert rec.ssb is True
 
+    def test_glycerol_is_not_proposed_because_the_design_refuses_it(self):
+        """The optimizer may not recommend an additive the design rejects.
+
+        `resolve_design_request` refuses glycerol (its duplex model is `absent`),
+        so proposing a non-zero glycerol dose would hand the user a recipe their
+        own `optimize`/`design` run errors on. Even asked to include glycerol,
+        the recommendation must carry 0.0. The registry is the single source of
+        truth both the optimizer and the refusal consult.
+        `docs/validation/2026-10-26-suggested-additives-reach-design.md`.
+        """
+        optimizer = AdditiveOptimizer(polymerase="phi29")
+        rec = optimizer.optimize(primer_length=12, template_gc=0.65, include_glycerol=True)
+        assert rec.glycerol_percent == 0.0, (
+            "the optimizer proposed glycerol, which the design would refuse"
+        )
+
+    def test_a_usable_optional_additive_is_still_proposed(self):
+        """The glycerol gate must not suppress additives the design accepts.
+
+        Formamide is `measured`, so include_formamide must still reach the grid
+        and can be recommended -- the gate keys on the `absent` status, not on
+        being optional.
+        """
+        optimizer = AdditiveOptimizer(polymerase="phi29")
+        rec = optimizer.optimize(primer_length=12, template_gc=0.65, include_formamide=True)
+        assert rec.formamide_percent > 0.0
+
+    def test_an_ssb_recommendation_says_the_design_model_does_not_use_it(self):
+        """The SSB recommendation carries its caveat.
+
+        `include_ssb` defaults True and the CLI does not override it, so this
+        recommendation fires by default for GC>0.55. SSB moves no melting
+        temperature, is not in the evidence map, and its only modelled consumer
+        is the mechanistic term the default `hybrid` method does not read -- so
+        following the recommendation changes no delivered panel on a default
+        run. The output has to say so; this pins that it does, in both the
+        summary and the rationale, so the honesty note cannot silently regress.
+        `docs/validation/2026-10-26-suggested-additives-reach-design.md`.
+        """
+        optimizer = AdditiveOptimizer(polymerase="phi29")
+        rec = optimizer.optimize(primer_length=10, template_gc=0.75)
+        assert rec.ssb is True
+
+        summary = rec.summary().lower()
+        assert "ssb" in summary
+        assert "design model does not use ssb" in summary
+        assert "mechanistic" in summary
+        assert "design model does not use it" in rec.rationale.lower()
+
     def test_very_short_primers(self):
         """Test with very short primers."""
         optimizer = AdditiveOptimizer(polymerase="phi29")
