@@ -207,6 +207,39 @@ blocking violation. On a single-target design there is one entry, so the
 key is a minimum foreground coverage floor -- choosing a value there is
 your claim about the reaction, not a NeoSWGA default.
 
+## Several hosts: pooled vs. worst case
+
+When `bg_genomes` lists more than one host, `background_aggregate` says what
+"the background" means.
+
+- `sum` (default) treats every host as present at once. Site counts are
+  summed and divided by the summed length. With a small and a large host the
+  large one dominates the denominator, so a candidate frequent on the small
+  host can still pass (Known Issue 6).
+- `worst-case` treats the hosts as alternatives. Each host is judged on its
+  own length: in `filter` a candidate must pass the frequency gate on every
+  host, and in `optimize` the limits `min_selectivity_density`,
+  `max_background_sites` and `max_host_coverage` bind against the worst host.
+  A host with no position data makes the worst case unknown, and the limit is
+  then refused rather than satisfied.
+
+Under both readings `selectivity_density`, `total_bg_sites` and
+`bg_coverage` stay pooled. The per-host figures are reported as `per_host`,
+and the reductions as `worst_host_selectivity_density`,
+`worst_host_background_sites` and `worst_host_bg_coverage`. Compare hosts by
+density, not by the count ratio, which moves with host size.
+
+`background-aware` with `worst-case` and two or more hosts is refused,
+because its host-term weight was calibrated on pooled counts.
+
+On one design (wMel against *L. plantarum* and *Drosophila*, no panel limits)
+the two readings delivered the same panel at 6 and 12 primers and differed by
+one primer at 24
+(`docs/validation/2026-11-08-background-aggregate-measured.md`). No benefit
+of `worst-case` has been demonstrated, so `sum` remains the default. Where
+the hosts differ greatly in size and a panel limit is set, `worst-case` is
+the reading that does not move with host size.
+
 ## Diagnosing "no primers selected"
 
 The most common failure is empty filter output. In order of likelihood:
