@@ -77,6 +77,21 @@ _LIMITS = (
     ("max_mean_gap", "mean_gap", _AT_MOST, "mean gap above maximum", False),
     ("max_evenness", "gap_gini", _AT_MOST, "evenness above maximum", False),
     ("max_host_coverage", "bg_coverage", _AT_MOST, "host coverage above maximum", True),
+    # Added 2026-10-02, at the END so the first two rows keep the position
+    # `pool_planner._repair` depends on. `worst_target_coverage` is the MINIMUM
+    # over `metrics.per_target_coverage`, and it is `None` when any target could
+    # not be measured -- never the lowest of the targets that answered. `_unmet`
+    # therefore refuses this limit on an unmeasured target rather than passing
+    # it, which is the whole reason the figure is `None` and not 0.0. Until
+    # `compute_metrics` populated the per-target dict this limit could only be
+    # reported; see `core/target_coverage.py`.
+    (
+        "min_per_target_coverage",
+        "worst_target_coverage",
+        _AT_LEAST,
+        "per-target coverage below minimum",
+        False,
+    ),
 )
 
 
@@ -131,6 +146,14 @@ class PoolConstraints:
     max_mean_gap: float | None = None
     max_evenness: float | None = None
     max_host_coverage: float | None = None
+
+    # The floor every single target must clear, measured against
+    # `metrics.worst_target_coverage`. Unset by default like the rest, and 0.0
+    # means disabled rather than a floor of zero -- `panel_acceptance`
+    # `DISABLED_WHEN_ZERO` holds that rule, so a run that asks for nothing does
+    # not acquire an objective. No default: the measurement that would justify
+    # one is Phase 6c's deferred rerun of the Phase 3 designs.
+    min_per_target_coverage: float | None = None
 
     def __post_init__(self) -> None:
         if self.coverage_metric not in {"effective", "raw"}:

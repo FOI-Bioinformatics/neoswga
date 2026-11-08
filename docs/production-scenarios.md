@@ -174,23 +174,38 @@ When `fg_prefixes` lists more than one target genome, the coverage
 metric `fg_coverage` aggregates as the **union** across prefixes —
 i.e. a primer that binds only target A still contributes to the
 global coverage number, because SWGA amplifies any target it touches.
-`per_target_coverage` (populated by every optimizer since Phase 15A)
-is the per-target dict `{prefix: covered_fraction}` so users can see
-the imbalance directly.
+`per_target_coverage` is the per-target dict
+`{prefix: covered_fraction}` so users can see the imbalance directly.
+It is produced by `compute_metrics` itself since 2026-10-02, so the
+search, the acceptance check and the bounded repair all see it, and
+`worst_target_coverage` beside it is the minimum over those entries.
+The two are **record-confined**: a window stops at the FASTA record
+holding its site, so a panel is not credited with bases on contigs its
+sites are not on (audit finding F3). `fg_coverage` is deliberately
+unconfined, so on a fragmented reference it reads higher than the
+length-weighted mean of the per-target entries.
 
 | Scenario | What you see | What it means |
 |---|---|---|
 | `fg_coverage = 0.95`, `per_target = {A: 0.95, B: 0.95}` | Balanced | Primer set amplifies both targets well. |
-| `fg_coverage = 0.90`, `per_target = {A: 0.95, B: 0.40}` | Target B underserved | Aggregate is misleading; target B is under-covered. A `per_target_coverage_below_threshold` warning fires when `min_per_target_coverage` > B's coverage. |
+| `fg_coverage = 0.90`, `per_target = {A: 0.95, B: 0.40}` | Target B underserved | Aggregate is misleading; target B is under-covered. Set `min_per_target_coverage` above 0.40 and the run attempts one bounded repair, reports whether it met the floor, and refuses the panel if it did not -- `export` then needs `--allow-unqualified`. Leave it unset and the imbalance is reported only. |
 | `fg_coverage = 1.00`, `per_target = {plasmid: 1.00}` on a 5 kb plasmid | Saturation | Phase 17B emits `coverage_saturated_on_small_genome` because N primers x 2 x per-primer-reach (~6-18 kb) exceeds the genome length; the 100% number is not a quality signal. |
 
 Neoswga does **not** compute an intersection coverage metric (how much
 of the genome is covered in *every* target simultaneously). For
 pan-primer designs that require "this primer must work on all targets",
-inspect `per_target_coverage` directly and reject sets where any entry
-is below your threshold. The HTML report surfaces the
-`per_target_coverage_below_threshold` warning visibly (Phase 17A) so
-this does not require reading the JSON.
+set `min_per_target_coverage`: since 2026-10-02 it is an enforced panel
+limit rather than advice, so the run rejects a set with an entry below
+the floor instead of asking you to. The HTML report shows the per-target
+table, `worst_target_coverage` beside it, and the
+`per_target_coverage_below_threshold` warning, so this does not require
+reading the JSON.
+
+Setting it is a **verdict change** on a design that was passing: a panel
+below the floor used to carry a warning and `ok: true`, and is now a
+blocking violation. On a single-target design there is one entry, so the
+key is a minimum foreground coverage floor -- choosing a value there is
+your claim about the reaction, not a NeoSWGA default.
 
 ## Diagnosing "no primers selected"
 

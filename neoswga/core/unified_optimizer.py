@@ -49,6 +49,12 @@ from .position_cache import PositionCache, StreamingPositionCache
 from .progress import progress_context
 from .search_control import SearchBudgetExhausted, collect_alternative_sets  # noqa: F401
 from .step4_output import _write_validation_report, save_results
+from .target_coverage import (
+    DIRECTIONAL_UNAVAILABLE,
+    attach_per_target,
+    require_per_target,
+    saturation_issues,
+)
 from .validation_record import limit_violation_issue, panel_assessment
 
 logger = logging.getLogger(__name__)
@@ -213,7 +219,7 @@ def _run_ensemble(
 
             if shared_objective is None:
                 shared_objective = objective_for_optimizer(
-                    optimizer, constraints_from_parameter(parameter)
+                    optimizer, constraints_from_parameter(parameter, kwargs)
                 )
             else:
                 from .swap_refinement import attach_search_config
@@ -315,7 +321,7 @@ def _run_ensemble(
 
                     attach_search_config(combiner, "pool_objective", shared_objective)
                 else:
-                    objective_for_optimizer(combiner, constraints_from_parameter(parameter))
+                    objective_for_optimizer(combiner, constraints_from_parameter(parameter, kwargs))
                 combined = run_panel_search(
                     OptimizationRequest(
                         combiner, tuple(union_pool), target_size, budget=search_budget
@@ -494,6 +500,11 @@ def _build_optimizer_config(
         max_dimer_dg=pick("max_dimer_dg", None),
         allow_dimer_relaxation=pick("allow_dimer_relaxation", False),
         coverage_metric=pick("coverage_metric", None),
+        # So `compute_metrics` can tell whether anything in this run reads the
+        # per-target figure. `pick` is the same precedence `per_target_floor`
+        # applies -- the flag, then the params.json global -- so the two cannot
+        # disagree about whether a floor is in force.
+        min_per_target_coverage=pick("min_per_target_coverage", None),
         refinement_method=pick("refinement_method", "network"),
         swap_max_evaluations=pick("swap_max_evaluations", 10000),
         stage1_objective_width=pick("stage1_objective_width", None),
@@ -750,7 +761,7 @@ def _dispatch_optimizer(
         from .optimization_service import OptimizationRequest, run_panel_search
         from .panel_refinement import objective_for_optimizer
 
-        objective_for_optimizer(optimizer, constraints_from_parameter(parameter))
+        objective_for_optimizer(optimizer, constraints_from_parameter(parameter, kwargs))
         # Run optimization
         with progress_context(f"Running {optimizer.name} optimizer", disable=not verbose):
             result = run_panel_search(
@@ -766,7 +777,7 @@ def _dispatch_optimizer(
     if optimizer is not None:
         from .panel_refinement import objective_for_optimizer
 
-        objective_for_optimizer(optimizer, constraints_from_parameter(parameter))
+        objective_for_optimizer(optimizer, constraints_from_parameter(parameter, kwargs))
     return result, optimizer
 
 
@@ -1116,7 +1127,7 @@ def run_optimization(
 
     # Resolve any remaining repair before derived coverage and validation reports.
     result, acceptance = _hold_to_configured_limits(
-        result, optimizer, candidates, config, verbose, budget=search_budget
+        result, optimizer, candidates, config, verbose, budget=search_budget, flags=kwargs
     )
 
     # Alternative sets, when `max_sets` asks for more than one. Done here, on
@@ -1140,7 +1151,7 @@ def run_optimization(
             budget=search_budget,
             # And the run's limits, so an alternative is assessed against what
             # the primary was assessed against rather than against nothing.
-            constraints=constraints_from_parameter(parameter),
+            constraints=constraints_from_parameter(parameter, kwargs),
         )
         if verbose and len(_LAST_PRIMER_SETS) > 1:
             logger.info(f"max_sets={_max_sets}: offering {len(_LAST_PRIMER_SETS)} distinct sets")
@@ -1152,75 +1163,48 @@ def run_optimization(
 
         result = _dc_replace(result, unindexed_candidates=_unindexed)
 
-    # Phase 15A: populate per_target_coverage on the result so multi-
-    # target runs surface "target A 95% / target B 40%" instead of one
-    # aggregate. Computed in the caller (here) rather than in every
-    # optimizer so all 16 methods get the same treatment uniformly. The
-    # `dataclasses.replace` preserves frozen-dataclass immutability.
+    # With a floor configured, `compute_metrics` has already produced the
+    # per-target figures and the search, the acceptance check and the repair all
+    # read them. With no floor configured nothing read them during the search
+    # and they were not computed, because a bitmap per target is linear in the
+    # sequence (+40 ms on a 145 Mb foreground) and an objective evaluation runs
+    # very many times. They are filled in here ONCE, on the delivered panel, so
+    # a reported figure does not disappear because an unrelated limit is unset.
+    # `attach_per_target` never overwrites, so the figure a floor was enforced
+    # against is the figure reported.
+    _geometry = getattr(config, "coverage_geometry", "symmetric")
+    result = attach_per_target(
+        result,
+        cache,
+        fg_prefixes,
+        fg_seq_lengths,
+        extension=extension_reach,
+        circular=fg_circular,
+        geometry=_geometry,
+    )
     _saturation_warnings: list = []  # collected here, appended to validation dict below
-    _coverage_extension: int = extension_reach
     try:
+        per_target = dict(getattr(result.metrics, "per_target_coverage", None) or {})
         if result.primers and fg_prefixes:
-            from dataclasses import replace as _dc_replace
-
-            from .coverage import compute_per_prefix_coverage
-
-            # The reach resolved above, which honours `coverage_reach` from
-            # params.json or `--coverage-reach`. This used to call
-            # `polymerase_extension_reach` again and discard the override, so a
-            # run selected at 8 kb and reported at phi29's 3 kb default -- about
-            # a third of the coverage the set was actually chosen for, with
-            # nothing saying the two figures came from different assumptions.
-            _ext = extension_reach
-            _coverage_extension = _ext
-            _, per_target = compute_per_prefix_coverage(
-                cache=cache,
-                primers=list(result.primers),
-                prefixes=fg_prefixes,
-                seq_lengths=fg_seq_lengths,
-                extension=_ext,
-                circular=fg_circular,
+            require_per_target(
+                per_target,
+                getattr(result.metrics, "worst_target_coverage", None),
+                fg_prefixes,
+                per_target_floor(kwargs, parameter),
+                DIRECTIONAL_UNAVAILABLE if _geometry == "directional" else None,
             )
-            if per_target:
-                new_metrics = _dc_replace(result.metrics, per_target_coverage=per_target)
-                result = _dc_replace(result, metrics=new_metrics)
-
-                # Small-genome coverage saturation check. When
-                # (num_primers * 2 * extension) >= genome_len, a primer
-                # set can trivially cover the genome regardless of design
-                # quality — the coverage number is saturation-bounded,
-                # not a real property. Warn so the user does not mistake
-                # plasmid-scale scenarios for "perfect design".
-                n_primers = len(result.primers)
-                if n_primers > 0 and _ext > 0:
-                    for prefix, length in zip(fg_prefixes, fg_seq_lengths, strict=True):
-                        if length <= 0:
-                            continue
-                        expected_window = n_primers * 2 * _ext
-                        saturation = length / expected_window if expected_window else 1.0
-                        cov = per_target.get(prefix, 0.0)
-                        if saturation < 1.0 and cov >= 0.95:
-                            _saturation_warnings.append(
-                                {
-                                    "level": "warning",
-                                    "code": "coverage_saturated_on_small_genome",
-                                    "detail": (
-                                        f"{prefix}: genome={length} bp, "
-                                        f"{n_primers} primers x 2x {_ext} bp "
-                                        f"reach = {expected_window} bp; "
-                                        f"coverage={cov:.1%} is saturation-"
-                                        f"bounded (metric unreliable)"
-                                    ),
-                                }
-                            )
+            _saturation_warnings.extend(
+                saturation_issues(
+                    per_target,
+                    fg_prefixes,
+                    fg_seq_lengths,
+                    len(result.primers),
+                    extension_reach,
+                )
+            )
     except DesignError:
         raise
     except Exception as exc:
-        # `base_optimizer` gates the per-target floor on a non-empty dict, so
-        # an empty one makes a REQUESTED floor pass vacuously: the panel that
-        # starves one target is reported as satisfying the limit set to stop
-        # exactly that. Aggregate coverage cannot reveal it either, which is
-        # why the floor exists.
         raise ModelEvaluationError("per_target_coverage", sorted(fg_prefixes), str(exc)) from exc
 
     # Post-optimization sanity validation. Catches duplicates, size drift,
@@ -1276,7 +1260,10 @@ def run_optimization(
             if verbose:
                 logger.warning(f"{_dimer_issue['code']}: {_dimer_issue['detail']}")
 
-    # Reported, not repaired; `panel_acceptance` says why.
+    # The per-target table, describing the panel AFTER the bounded repair ran
+    # above. Repaired since 2026-10-02: the floor is a row in
+    # `pool_objective._LIMITS` and the "Configured limits" table says whether
+    # the one repair attempt met it.
     if verbose:
         report_per_target(
             check_per_target_coverage(result.metrics, per_target_floor(kwargs, parameter))
@@ -1302,15 +1289,20 @@ def run_optimization(
     return result
 
 
-def _hold_to_configured_limits(result, optimizer, candidates, config, verbose, budget=None):
+def _hold_to_configured_limits(
+    result, optimizer, candidates, config, verbose, budget=None, flags=None
+):
     """Report configured panel limits and resolve any remaining bounded repair.
 
     Returns `(result, report)`. The report is None when this run configured no
     limit, which is absence rather than compliance: with none configured
     `constraints_from_parameter` returns None, no objective is built and
     nothing here is evaluated.
+
+    `flags` carries this invocation's kwargs so `--min-per-target-coverage`
+    reaches the repair as the same value in params.json does.
     """
-    constraints = constraints_from_parameter(parameter)
+    constraints = constraints_from_parameter(parameter, flags)
     if constraints is None or not result.primers or optimizer is None:
         return result, None
     replacement, report = apply_configured_limits(

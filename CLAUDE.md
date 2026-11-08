@@ -38,7 +38,7 @@ When adding a record, add it there and keep this file to a line or two.
 |---|---|
 | `unified_optimizer.py` | Dispatches the optimizers: `hybrid_optimizer`, `dominating_set_adapter` + `dominating_set_optimizer`, `network_optimizer`, `background_aware_optimizer`, `clique_optimizer`. The `--minimize-primers` post-process is `optimization_service.reduce_result` (via `run_panel_search(minimize=True)`), not a separate module. `background-aware` is `BackgroundAwareBaseOptimizer`, which delegates to `HybridOptimizer` |
 | `exceptions.py` | `StepPrerequisiteError`, `StepValidationResult` and the `DesignError` family. Keep it free of dependencies beyond `typing` and `dataclasses`; `core/pipeline.py` re-exports the same objects |
-| `occupancy_coverage.py`, `selectivity.py` | Extracted from `base_optimizer` when it reached its size budget; re-exported from it as the same objects |
+| `occupancy_coverage.py`, `selectivity.py`, `target_coverage.py` | Extracted from `base_optimizer` when it reached its size budget; re-exported from it as the same objects. `target_coverage` runs the one per-prefix loop under two geometries: unconfined for `fg_coverage`, record-confined (audit F3) for `per_target_coverage` and `worst_target_coverage`, which is what a floor is read against and what `evaluate-set` reports |
 | `lazy_dimer.py` | `dimer_screen(pool, max_dimer_bp)` is the one decision about dense matrix against pairwise screen (threshold 4,000 candidates) |
 | `candidate_source.py` | `open_design_source` is the rule every design command asks. An explicit list wins; an absent inventory is None; a mismatched inventory raises. Only `plan-pool` advances the frontier, deliberately |
 | `position_index.py` | The only reader and writer of `*_positions.h5` (sorted-blocks layout) |
@@ -201,7 +201,11 @@ measurements: implementation-notes.md.
   cleared, and evaluated at the REACTION temperature, not 37 C. Every method
   honours it; `clique` only since 2026-10-26), `max_sets` (5), `iterations` (8; bounds the search for
   alternatives, not the primary selection), `coverage_metric`,
-  `min_per_target_coverage` (checked and reported, not repaired).
+  `min_per_target_coverage` (a panel limit since 2026-10-02: read against
+  `worst_target_coverage`, the record-confined minimum over targets, and
+  repaired once like the others. Unset by default, 0.0 means disabled, an
+  unmeasured target refuses the limit rather than passing it, and setting it
+  turns a warning into a blocking violation, so `export` refuses).
 - **Mismatch weighting**: `mismatch_penalty` (4.0 C, uniform) and
   `mismatch_model` (`uniform` default, `position-dependent`,
   `position-dependent-3prime`; params.json only, no flag, off by default). The
@@ -547,3 +551,14 @@ with open_index('g_12mer_positions.h5') as index:
 - State the size of a claim. One pair, one panel size or one seed is "no
   benefit demonstrated", and "not determined" is for cases where more evidence
   would settle it.
+- Before making an existing figure the subject of a user-settable limit, search
+  the audit records for that figure's NAME. A plan can tell you to compute it
+  the wrong way: Phase 6c was told to take per-target coverage from the loop
+  that produces `fg_coverage`, which audit finding F3 had already recorded as a
+  P1 error for that quantity and fixed elsewhere, and on a 500-contig draft the
+  floor passed a panel at 0.9996 that measures 0.775. Correctness beats reusing
+  one loop, and the record names the finding.
+- A figure only a configured limit reads should not be computed in every
+  objective evaluation. Compute it when something reads it, once at the end for
+  the report, and measure all three cases: with the limit, without it, and
+  against the pre-change cost.

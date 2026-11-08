@@ -32,6 +32,10 @@ FIELDS = (
     "selectivity_density",
     "total_bg_sites",
     "max_gap",
+    # From 2026-10-02. `min_per_target_coverage` is enforced against it,
+    # so the two evaluators disagreeing here would mean the search accepted a
+    # panel the report refuses, or the reverse.
+    "worst_target_coverage",
     # Joined 2026-11-02. Pinned here like the rest, because the whole point of
     # this file is that the focused evaluator and the full one cannot drift
     # while each stays self-consistent.
@@ -121,13 +125,33 @@ def test_an_empty_panel_agrees_too(built):
             assert actual == pytest.approx(expected), field
 
 
-def test_reaching_for_a_sixth_field_is_an_error(built):
+def test_reaching_for_an_uncarried_field_is_an_error(built):
     """A default here would be indistinguishable from a measurement."""
     optimizer, primers = built
     light = compute_pool_metrics(optimizer, primers[:3])
 
     with pytest.raises(AttributeError):
         light.dimer_risk
+
+
+def test_the_enforced_limit_reads_a_field_the_light_evaluator_carries(built):
+    """The hole this field was added to close.
+
+    `objective_for_optimizer` hands the search `compute_pool_metrics` whenever
+    no gap-evenness or host-coverage limit is set, which is the case when
+    `min_per_target_coverage` is the only limit. `PoolObjective.violations`
+    reads each limit's metrics field through `getattr(metrics, metric, None)`,
+    so a field the light evaluator does not carry is not an error there -- it is
+    a None, `_unmet` treats it as missing the limit, and every panel violates a
+    floor none of them can clear.
+    """
+    from neoswga.core.pool_objective import _LIMITS
+
+    optimizer, primers = built
+    light = compute_pool_metrics(optimizer, primers[:3])
+    enforced = {field: metric for field, metric, *_rest in _LIMITS}
+
+    assert hasattr(light, enforced["min_per_target_coverage"])
 
 
 @pytest.fixture(scope="module")

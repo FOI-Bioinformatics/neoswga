@@ -150,7 +150,14 @@ def test_dispatch_attaches_contract_before_selection_and_refines(monkeypatch):
     monkeypatch.setattr(
         unified,
         "constraints_from_parameter",
-        lambda source: PoolConstraints(min_selectivity_density=10),
+        # `flags` since 2026-10-02: `min_per_target_coverage` is the one panel
+        # limit with a CLI flag, so the run's kwargs are consulted before the
+        # params.json globals. The stub REQUIRES the second argument rather than
+        # defaulting it: with `flags=None` it also accepts a dispatch that has
+        # stopped passing the flags, which is review finding F3 -- removing
+        # `kwargs` from the two `_dispatch_optimizer` calls reverted the
+        # delivered panel while 294 tests still passed, this one among them.
+        lambda source, flags: PoolConstraints(min_selectivity_density=10),
     )
     delivered, evaluator = unified._dispatch_optimizer(
         "hybrid",
