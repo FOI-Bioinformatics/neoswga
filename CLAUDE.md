@@ -249,6 +249,9 @@ measurements: implementation-notes.md.
   is reported as `worst_host_*` beside `per_host`.
   `background-aware` with `worst-case` and two or more hosts is refused: its
   host-term weight was calibrated on pooled counts (`refuse_uncalibrated_host_term`).
+  Measured on D3 with no limits set: the same panel at 6 and 12 primers, one
+  primer different at 24; the default stays `sum`
+  (`docs/validation/2026-11-08-background-aggregate-measured.md`).
   `core/background_aggregate.py` is the one place it resolves.
 - **Panel limits**, all unset by default and params.json only:
   `min_selectivity_density`, `max_background_sites`, `max_worst_hole`,
