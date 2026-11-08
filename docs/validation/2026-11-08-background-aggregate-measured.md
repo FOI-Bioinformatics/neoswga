@@ -110,7 +110,14 @@ ruled out. The default stays `sum`.
 ## Not measured
 
 - Panel limits under `worst-case` on real genomes. Covered by synthetic tests
-  only (`tests/test_per_host_figures.py`).
+  only (`tests/test_per_host_figures.py`). *Measured 2026-11-08 on a second
+  pair in [2026-11-08-limits-under-worst-case.md](2026-11-08-limits-under-worst-case.md):
+  they do read differently. A straddling `min_selectivity_density` is
+  delivered and qualified under `sum` and refused under `worst-case` at all
+  three sizes, and a straddling `max_host_coverage` makes the bounded repair
+  deliver a DIFFERENT panel (Jaccard 0.600) -- the first measured instance of
+  this key changing what a design delivers. The conclusion above, that
+  `worst-case` changes little, holds only for a run with no limits set.*
 - The H3 design (hg38 as a design background) under `worst-case`. That route
   needs the host-scale pass and about 10 GiB per step; it was not run.
 - C2 random panels for the `worst-case` pool.

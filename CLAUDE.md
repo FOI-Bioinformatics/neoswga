@@ -251,7 +251,16 @@ measurements: implementation-notes.md.
   host-term weight was calibrated on pooled counts (`refuse_uncalibrated_host_term`).
   Measured on D3 with no limits set: the same panel at 6 and 12 primers, one
   primer different at 24; the default stays `sum`
-  (`docs/validation/2026-11-08-background-aggregate-measured.md`).
+  (`docs/validation/2026-11-08-background-aggregate-measured.md`). With a limit
+  SET, which is the only thing step 4 reads the key for, the readings diverge:
+  on Mtb against *S. aureus* and chr1 the pooled density is 141-352 against a
+  worst-host 27-35, so `min_selectivity_density` 100 is qualified under `sum`
+  and refused under `worst-case` at every size, and a straddling
+  `max_host_coverage` makes the repair deliver a different panel. The worst
+  host there holds ZERO exact sites and binds only through the occupancy model,
+  and repairing one reduction worsened another, so the three limits do not move
+  together. Default still `sum`
+  (`docs/validation/2026-11-08-limits-under-worst-case.md`).
   `core/background_aggregate.py` is the one place it resolves.
 - **Panel limits**, all unset by default and params.json only:
   `min_selectivity_density`, `max_background_sites`, `max_worst_hole`,
@@ -391,6 +400,9 @@ Full text: [docs/development/KNOWN_ISSUES.md](docs/development/KNOWN_ISSUES.md).
    POOLED density is a property of the pool, not of any host, so it moves with
    the host panel too. `background_aggregate: worst-case` is the per-host
    reading; no per-host output carries a count ratio.
+   Measured 2026-11-08: the pooled and worst-host densities differ tenfold on
+   hosts 88x apart, enough to qualify a panel under one reading and refuse it
+   under the other.
 7. **int64 coordinates**. int32 saturated on hg38 and hid host sites. Test
    against a whole genome, not a chromosome.
    - Unnumbered, between 7 and 8: `--design-grid` on `plan-pool`;

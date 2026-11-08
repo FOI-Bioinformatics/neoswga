@@ -1,0 +1,3296 @@
+{
+  "design": {
+    "target": "M. tuberculosis H37Rv, 4,411,532 bp, GC 65.6%, 1 record",
+    "hosts": [
+      "S. aureus NCTC 8325, 2,821,361 bp",
+      "human chr1 (hg38), 248,956,422 bp"
+    ],
+    "host_length_ratio": 88.2,
+    "k": 12,
+    "polymerase": "phi29",
+    "reaction_temp": 30.0,
+    "max_primer": 2000
+  },
+  "limits": {
+    "max_host_coverage": 0.000191
+  },
+  "sizes": [
+    6,
+    12,
+    24
+  ],
+  "runs": [
+    {
+      "reading": "sum",
+      "size": 6,
+      "limits": {},
+      "label": "sum_unlimited",
+      "seconds": 69.0,
+      "returncode": 0,
+      "validation_report_present": true,
+      "validator_issues": [],
+      "primers": [
+        "CGACGATGTCGA",
+        "CGTTGCCGAACA",
+        "CCGTTGCCGTAC",
+        "CGATGCCGATCA",
+        "CCGATGCCGAAC",
+        "AACTCGCCGAAC"
+      ],
+      "delivered": 6,
+      "fg_coverage": 0.15753348269943412,
+      "worst_target_coverage": 0.15753348269943412,
+      "selectivity_density": 351.5653004051196,
+      "total_bg_sites": 1,
+      "bg_coverage": 2.3830537899366603e-05,
+      "worst_host_selectivity_density": null,
+      "worst_host_background_sites": 1,
+      "worst_host_bg_coverage": 2.4100603438139067e-05,
+      "per_host": {
+        "saureus": {
+          "length_bp": 2821361,
+          "sites": 0,
+          "sites_per_mb": 0.0,
+          "effective_site_load": null,
+          "coverage": 0.0,
+          "selectivity_density": null,
+          "unavailable": null,
+          "load_unavailable": "the per-host occupancy load is computed only under background_aggregate='worst-case', where a panel limit reads it. The pooled load for this panel is in effective_bg_sites",
+          "comparable": "selectivity_density"
+        },
+        "chr1": {
+          "length_bp": 248956422,
+          "sites": 1,
+          "sites_per_mb": 0.0040167672396898444,
+          "effective_site_load": null,
+          "coverage": 2.4100603438139067e-05,
+          "selectivity_density": null,
+          "unavailable": null,
+          "load_unavailable": "the per-host occupancy load is computed only under background_aggregate='worst-case', where a panel limit reads it. The pooled load for this panel is in effective_bg_sites",
+          "comparable": "selectivity_density"
+        }
+      },
+      "background_aggregate_recorded": "sum",
+      "violations": [],
+      "blocking_violations": [],
+      "advisory_violations": [],
+      "qualified": true,
+      "panel_regime": {
+        "background_aggregate": "sum",
+        "limiting": "coverage",
+        "failing": [
+          "coverage"
+        ],
+        "unreferenced": [
+          "worst_hole",
+          "mean_gap",
+          "evenness",
+          "host_coverage",
+          "strand_balance",
+          "strand_alternation",
+          "host_gap_evenness",
+          "convergent_gap",
+          "host_convergent_gap",
+          "weakest_occupancy"
+        ],
+        "criteria": [
+          {
+            "name": "coverage",
+            "value": 0.15753110175082452,
+            "reference": 0.8,
+            "direction": "at_least",
+            "slack": -0.8030861228114694,
+            "units": "fraction",
+            "note": "occupancy-weighted"
+          },
+          {
+            "name": "fg_bg_ratio",
+            "value": 6.159961988492044,
+            "reference": 5.0,
+            "direction": "at_least",
+            "slack": 0.23199239769840876,
+            "units": "ratio",
+            "note": "from the application profile"
+          },
+          {
+            "name": "panel_size",
+            "value": 6.0,
+            "reference": 6.0,
+            "direction": "at_least",
+            "slack": 0.0,
+            "units": "primers",
+            "note": "a request, not a guarantee: selection stops rather than admit a dimerising pair"
+          },
+          {
+            "name": "worst_hole",
+            "value": 172770.0,
+            "reference": null,
+            "direction": null,
+            "slack": null,
+            "units": "bp",
+            "note": "57.6x the 3000 bp reach, 3.92% of the target, no reference: no reach-derived threshold separates published winners"
+          },
+          {
+            "name": "mean_gap",
+            "value": 31067.12676056338,
+            "reference": null,
+            "direction": null,
+            "slack": null,
+            "units": "bp",
+            "note": "10.36x the 3000 bp reach, no reference"
+          },
+          {
+            "name": "evenness",
+            "value": 0.5485151445520641,
+            "reference": null,
+            "direction": null,
+            "slack": null,
+            "units": "Gini",
+            "note": "0 is uniform spacing, no reference: it separates winners on one benchmark and runs backwards on the other"
+          },
+          {
+            "name": "host_coverage",
+            "value": 2.3830537899366603e-05,
+            "reference": null,
+            "direction": null,
+            "slack": null,
+            "units": "fraction",
+            "note": "the only quantity here that sees host site position, no reference"
+          },
+          {
+            "name": "strand_balance",
+            "value": 0.9722222222222222,
+            "reference": null,
+            "direction": null,
+            "slack": null,
+            "units": "ratio",
+            "note": "1 is balanced between strands, no reference"
+          },
+          {
+            "name": "strand_alternation",
+            "value": 0.3404255319148936,
+            "reference": null,
+            "direction": null,
+            "slack": null,
+            "units": "fraction",
+            "note": "adjacent sites on opposite strands, no reference"
+          },
+          {
+            "name": "host_gap_evenness",
+            "value": null,
+            "reference": null,
+            "direction": null,
+            "slack": null,
+            "units": "Gini",
+            "note": "swga 2.0's `off_gap_gini`: distances between host sites, per strand, averaged over strands then hosts. HIGHER is better here, since clustered host sites leave most of the host out of reach. No reference: it carries the second-largest weight in the one set-level model fitted against sequencing breadth, over 46 sets, and that coefficient sits in a table nobody here could open"
+          },
+          {
+            "name": "convergent_gap",
+            "value": 153104.0,
+            "reference": null,
+            "direction": null,
+            "slack": null,
+            "units": "bp",
+            "note": "widest target stretch with no convergent pair, no reference"
+          },
+          {
+            "name": "host_convergent_gap",
+            "value": 248956422.0,
+            "reference": null,
+            "direction": null,
+            "slack": null,
+            "units": "bp",
+            "note": "widest host stretch with no convergent pair; LARGER is better here, since a host whose sites cannot face each other amplifies little. No reference"
+          },
+          {
+            "name": "weakest_occupancy",
+            "value": 0.999974761247399,
+            "reference": null,
+            "direction": null,
+            "slack": null,
+            "units": "fraction",
+            "note": "median 1, strongest 1, spread 1.0x; no reference, since no validated floor on occupancy exists"
+          }
+        ]
+      },
+      "assessment_metrics": {
+        "bg_coverage": {
+          "value": 2.3830537899366603e-05,
+          "units": "fraction of host bases",
+          "basis": "reach 3000 bp; denominator is total host length",
+          "unavailable": null
+        },
+        "effective_fg_coverage": {
+          "value": 0.15753110175082452,
+          "units": "fraction of target bases",
+          "basis": "reach 3000 bp; occupancy-weighted, the quantity selection uses",
+          "unavailable": null
+        },
+        "fg_coverage": {
+          "value": 0.15753348269943412,
+          "units": "fraction of target bases",
+          "basis": "reach 3000 bp; denominator is total target length",
+          "unavailable": null
+        },
+        "gap_gini": {
+          "value": 0.5485151445520641,
+          "units": "dimensionless",
+          "basis": "evenness of target gaps",
+          "unavailable": null
+        },
+        "max_gap": {
+          "value": 172770.0,
+          "units": "bp",
+          "basis": "largest target hole",
+          "unavailable": null
+        },
+        "mean_gap": {
+          "value": 31067.12676056338,
+          "units": "bp",
+          "basis": "between adjacent target sites",
+          "unavailable": null
+        },
+        "mean_tm": {
+          "value": 53.45835841053729,
+          "units": "C",
+          "basis": "under the resolved reaction",
+          "unavailable": null
+        },
+        "selectivity_ratio": {
+          "value": 6.159961988492044,
+          "units": "dimensionless",
+          "basis": "effective foreground load over effective background load",
+          "unavailable": null
+        },
+        "total_bg_sites": {
+          "value": 1.0,
+          "units": "exact-match sites",
+          "basis": "exact matches only",
+          "unavailable": null
+        },
+        "total_fg_sites": {
+          "value": 142.0,
+          "units": "exact-match sites",
+          "basis": "exact matches only",
+          "unavailable": null
+        },
+        "worst_host_selectivity_density": {
+          "value": null,
+          "units": "dimensionless",
+          "basis": "lowest per-host density; null when any host went unmeasured",
+          "unavailable": "not computed for this panel"
+        }
+      },
+      "message": "Coverage: 17.6% (estimated, binned; fg_coverage is the measured value), Connectivity: 0.00"
+    },
+    {
+      "reading": "sum",
+      "size": 6,
+      "limits": {
+        "max_host_coverage": 0.000191
+      },
+      "label": "sum_limited",
+      "seconds": 68.7,
+      "returncode": 0,
+      "validation_report_present": true,
+      "validator_issues": [],
+      "primers": [
+        "CGACGATGTCGA",
+        "CGTTGCCGAACA",
+        "CCGTTGCCGTAC",
+        "CGATGCCGATCA",
+        "CCGATGCCGAAC",
+        "AACTCGCCGAAC"
+      ],
+      "delivered": 6,
+      "fg_coverage": 0.15753348269943412,
+      "worst_target_coverage": 0.15753348269943412,
+      "selectivity_density": 351.5653004051196,
+      "total_bg_sites": 1,
+      "bg_coverage": 2.3830537899366603e-05,
+      "worst_host_selectivity_density": null,
+      "worst_host_background_sites": 1,
+      "worst_host_bg_coverage": 2.4100603438139067e-05,
+      "per_host": {
+        "saureus": {
+          "length_bp": 2821361,
+          "sites": 0,
+          "sites_per_mb": 0.0,
+          "effective_site_load": null,
+          "coverage": 0.0,
+          "selectivity_density": null,
+          "unavailable": null,
+          "load_unavailable": "the per-host occupancy load is computed only under background_aggregate='worst-case', where a panel limit reads it. The pooled load for this panel is in effective_bg_sites",
+          "comparable": "selectivity_density"
+        },
+        "chr1": {
+          "length_bp": 248956422,
+          "sites": 1,
+          "sites_per_mb": 0.0040167672396898444,
+          "effective_site_load": null,
+          "coverage": 2.4100603438139067e-05,
+          "selectivity_density": null,
+          "unavailable": null,
+          "load_unavailable": "the per-host occupancy load is computed only under background_aggregate='worst-case', where a panel limit reads it. The pooled load for this panel is in effective_bg_sites",
+          "comparable": "selectivity_density"
+        }
+      },
+      "background_aggregate_recorded": "sum",
+      "violations": [],
+      "blocking_violations": [],
+      "advisory_violations": [],
+      "qualified": true,
+      "panel_regime": {
+        "background_aggregate": "sum",
+        "limiting": "coverage",
+        "failing": [
+          "coverage"
+        ],
+        "unreferenced": [
+          "worst_hole",
+          "mean_gap",
+          "evenness",
+          "host_coverage",
+          "strand_balance",
+          "strand_alternation",
+          "host_gap_evenness",
+          "convergent_gap",
+          "host_convergent_gap",
+          "weakest_occupancy"
+        ],
+        "criteria": [
+          {
+            "name": "coverage",
+            "value": 0.15753110175082452,
+            "reference": 0.8,
+            "direction": "at_least",
+            "slack": -0.8030861228114694,
+            "units": "fraction",
+            "note": "occupancy-weighted"
+          },
+          {
+            "name": "fg_bg_ratio",
+            "value": 6.159961988492044,
+            "reference": 5.0,
+            "direction": "at_least",
+            "slack": 0.23199239769840876,
+            "units": "ratio",
+            "note": "from the application profile"
+          },
+          {
+            "name": "panel_size",
+            "value": 6.0,
+            "reference": 6.0,
+            "direction": "at_least",
+            "slack": 0.0,
+            "units": "primers",
+            "note": "a request, not a guarantee: selection stops rather than admit a dimerising pair"
+          },
+          {
+            "name": "worst_hole",
+            "value": 172770.0,
+            "reference": null,
+            "direction": null,
+            "slack": null,
+            "units": "bp",
+            "note": "57.6x the 3000 bp reach, 3.92% of the target, no reference: no reach-derived threshold separates published winners"
+          },
+          {
+            "name": "mean_gap",
+            "value": 31067.12676056338,
+            "reference": null,
+            "direction": null,
+            "slack": null,
+            "units": "bp",
+            "note": "10.36x the 3000 bp reach, no reference"
+          },
+          {
+            "name": "evenness",
+            "value": 0.5485151445520641,
+            "reference": null,
+            "direction": null,
+            "slack": null,
+            "units": "Gini",
+            "note": "0 is uniform spacing, no reference: it separates winners on one benchmark and runs backwards on the other"
+          },
+          {
+            "name": "host_coverage",
+            "value": 2.3830537899366603e-05,
+            "reference": null,
+            "direction": null,
+            "slack": null,
+            "units": "fraction",
+            "note": "the only quantity here that sees host site position, no reference"
+          },
+          {
+            "name": "strand_balance",
+            "value": 0.9722222222222222,
+            "reference": null,
+            "direction": null,
+            "slack": null,
+            "units": "ratio",
+            "note": "1 is balanced between strands, no reference"
+          },
+          {
+            "name": "strand_alternation",
+            "value": 0.3404255319148936,
+            "reference": null,
+            "direction": null,
+            "slack": null,
+            "units": "fraction",
+            "note": "adjacent sites on opposite strands, no reference"
+          },
+          {
+            "name": "host_gap_evenness",
+            "value": null,
+            "reference": null,
+            "direction": null,
+            "slack": null,
+            "units": "Gini",
+            "note": "swga 2.0's `off_gap_gini`: distances between host sites, per strand, averaged over strands then hosts. HIGHER is better here, since clustered host sites leave most of the host out of reach. No reference: it carries the second-largest weight in the one set-level model fitted against sequencing breadth, over 46 sets, and that coefficient sits in a table nobody here could open"
+          },
+          {
+            "name": "convergent_gap",
+            "value": 153104.0,
+            "reference": null,
+            "direction": null,
+            "slack": null,
+            "units": "bp",
+            "note": "widest target stretch with no convergent pair, no reference"
+          },
+          {
+            "name": "host_convergent_gap",
+            "value": 248956422.0,
+            "reference": null,
+            "direction": null,
+            "slack": null,
+            "units": "bp",
+            "note": "widest host stretch with no convergent pair; LARGER is better here, since a host whose sites cannot face each other amplifies little. No reference"
+          },
+          {
+            "name": "weakest_occupancy",
+            "value": 0.999974761247399,
+            "reference": null,
+            "direction": null,
+            "slack": null,
+            "units": "fraction",
+            "note": "median 1, strongest 1, spread 1.0x; no reference, since no validated floor on occupancy exists"
+          }
+        ]
+      },
+      "assessment_metrics": {
+        "bg_coverage": {
+          "value": 2.3830537899366603e-05,
+          "units": "fraction of host bases",
+          "basis": "reach 3000 bp; denominator is total host length",
+          "unavailable": null
+        },
+        "effective_fg_coverage": {
+          "value": 0.15753110175082452,
+          "units": "fraction of target bases",
+          "basis": "reach 3000 bp; occupancy-weighted, the quantity selection uses",
+          "unavailable": null
+        },
+        "fg_coverage": {
+          "value": 0.15753348269943412,
+          "units": "fraction of target bases",
+          "basis": "reach 3000 bp; denominator is total target length",
+          "unavailable": null
+        },
+        "gap_gini": {
+          "value": 0.5485151445520641,
+          "units": "dimensionless",
+          "basis": "evenness of target gaps",
+          "unavailable": null
+        },
+        "max_gap": {
+          "value": 172770.0,
+          "units": "bp",
+          "basis": "largest target hole",
+          "unavailable": null
+        },
+        "mean_gap": {
+          "value": 31067.12676056338,
+          "units": "bp",
+          "basis": "between adjacent target sites",
+          "unavailable": null
+        },
+        "mean_tm": {
+          "value": 53.45835841053729,
+          "units": "C",
+          "basis": "under the resolved reaction",
+          "unavailable": null
+        },
+        "selectivity_ratio": {
+          "value": 6.159961988492044,
+          "units": "dimensionless",
+          "basis": "effective foreground load over effective background load",
+          "unavailable": null
+        },
+        "total_bg_sites": {
+          "value": 1.0,
+          "units": "exact-match sites",
+          "basis": "exact matches only",
+          "unavailable": null
+        },
+        "total_fg_sites": {
+          "value": 142.0,
+          "units": "exact-match sites",
+          "basis": "exact matches only",
+          "unavailable": null
+        },
+        "worst_host_selectivity_density": {
+          "value": null,
+          "units": "dimensionless",
+          "basis": "lowest per-host density; null when any host went unmeasured",
+          "unavailable": "not computed for this panel"
+        }
+      },
+      "message": "Coverage: 17.6% (estimated, binned; fg_coverage is the measured value), Connectivity: 0.00"
+    },
+    {
+      "reading": "worst-case",
+      "size": 6,
+      "limits": {},
+      "label": "worst-case_unlimited",
+      "seconds": 68.7,
+      "returncode": 0,
+      "validation_report_present": true,
+      "validator_issues": [],
+      "primers": [
+        "CGACGATGTCGA",
+        "CGTTGCCGAACA",
+        "CCGTTGCCGTAC",
+        "CGATGCCGATCA",
+        "CCGATGCCGAAC",
+        "AACTCGCCGAAC"
+      ],
+      "delivered": 6,
+      "fg_coverage": 0.15753348269943412,
+      "worst_target_coverage": 0.15753348269943412,
+      "selectivity_density": 351.5653004051196,
+      "total_bg_sites": 1,
+      "bg_coverage": 2.3830537899366603e-05,
+      "worst_host_selectivity_density": 35.17444760091088,
+      "worst_host_background_sites": 1,
+      "worst_host_bg_coverage": 2.4100603438139067e-05,
+      "per_host": {
+        "saureus": {
+          "length_bp": 2821361,
+          "sites": 0,
+          "sites_per_mb": 0.0,
+          "effective_site_load": 27.997712521530058,
+          "coverage": 0.0,
+          "selectivity_density": 35.17444760091088,
+          "unavailable": null,
+          "load_unavailable": null,
+          "comparable": "selectivity_density"
+        },
+        "chr1": {
+          "length_bp": 248956422,
+          "sites": 1,
+          "sites_per_mb": 0.0040167672396898444,
+          "effective_site_load": 221.98074186717565,
+          "coverage": 2.4100603438139067e-05,
+          "selectivity_density": 391.4706546567707,
+          "unavailable": null,
+          "load_unavailable": null,
+          "comparable": "selectivity_density"
+        }
+      },
+      "background_aggregate_recorded": "worst-case",
+      "violations": [],
+      "blocking_violations": [],
+      "advisory_violations": [],
+      "qualified": true,
+      "panel_regime": {
+        "background_aggregate": "worst-case",
+        "limiting": "coverage",
+        "failing": [
+          "coverage"
+        ],
+        "unreferenced": [
+          "worst_hole",
+          "mean_gap",
+          "evenness",
+          "host_coverage",
+          "strand_balance",
+          "strand_alternation",
+          "host_gap_evenness",
+          "convergent_gap",
+          "host_convergent_gap",
+          "weakest_occupancy"
+        ],
+        "criteria": [
+          {
+            "name": "coverage",
+            "value": 0.15753110175082452,
+            "reference": 0.8,
+            "direction": "at_least",
+            "slack": -0.8030861228114694,
+            "units": "fraction",
+            "note": "occupancy-weighted"
+          },
+          {
+            "name": "fg_bg_ratio",
+            "value": 6.159961988492044,
+            "reference": 5.0,
+            "direction": "at_least",
+            "slack": 0.23199239769840876,
+            "units": "ratio",
+            "note": "from the application profile"
+          },
+          {
+            "name": "panel_size",
+            "value": 6.0,
+            "reference": 6.0,
+            "direction": "at_least",
+            "slack": 0.0,
+            "units": "primers",
+            "note": "a request, not a guarantee: selection stops rather than admit a dimerising pair"
+          },
+          {
+            "name": "worst_hole",
+            "value": 172770.0,
+            "reference": null,
+            "direction": null,
+            "slack": null,
+            "units": "bp",
+            "note": "57.6x the 3000 bp reach, 3.92% of the target, no reference: no reach-derived threshold separates published winners"
+          },
+          {
+            "name": "mean_gap",
+            "value": 31067.12676056338,
+            "reference": null,
+            "direction": null,
+            "slack": null,
+            "units": "bp",
+            "note": "10.36x the 3000 bp reach, no reference"
+          },
+          {
+            "name": "evenness",
+            "value": 0.5485151445520641,
+            "reference": null,
+            "direction": null,
+            "slack": null,
+            "units": "Gini",
+            "note": "0 is uniform spacing, no reference: it separates winners on one benchmark and runs backwards on the other"
+          },
+          {
+            "name": "host_coverage",
+            "value": 2.3830537899366603e-05,
+            "reference": null,
+            "direction": null,
+            "slack": null,
+            "units": "fraction",
+            "note": "the only quantity here that sees host site position, no reference"
+          },
+          {
+            "name": "strand_balance",
+            "value": 0.9722222222222222,
+            "reference": null,
+            "direction": null,
+            "slack": null,
+            "units": "ratio",
+            "note": "1 is balanced between strands, no reference"
+          },
+          {
+            "name": "strand_alternation",
+            "value": 0.3404255319148936,
+            "reference": null,
+            "direction": null,
+            "slack": null,
+            "units": "fraction",
+            "note": "adjacent sites on opposite strands, no reference"
+          },
+          {
+            "name": "host_gap_evenness",
+            "value": null,
+            "reference": null,
+            "direction": null,
+            "slack": null,
+            "units": "Gini",
+            "note": "swga 2.0's `off_gap_gini`: distances between host sites, per strand, averaged over strands then hosts. HIGHER is better here, since clustered host sites leave most of the host out of reach. No reference: it carries the second-largest weight in the one set-level model fitted against sequencing breadth, over 46 sets, and that coefficient sits in a table nobody here could open"
+          },
+          {
+            "name": "convergent_gap",
+            "value": 153104.0,
+            "reference": null,
+            "direction": null,
+            "slack": null,
+            "units": "bp",
+            "note": "widest target stretch with no convergent pair, no reference"
+          },
+          {
+            "name": "host_convergent_gap",
+            "value": 248956422.0,
+            "reference": null,
+            "direction": null,
+            "slack": null,
+            "units": "bp",
+            "note": "widest host stretch with no convergent pair; LARGER is better here, since a host whose sites cannot face each other amplifies little. No reference"
+          },
+          {
+            "name": "weakest_occupancy",
+            "value": 0.999974761247399,
+            "reference": null,
+            "direction": null,
+            "slack": null,
+            "units": "fraction",
+            "note": "median 1, strongest 1, spread 1.0x; no reference, since no validated floor on occupancy exists"
+          }
+        ]
+      },
+      "assessment_metrics": {
+        "bg_coverage": {
+          "value": 2.3830537899366603e-05,
+          "units": "fraction of host bases",
+          "basis": "reach 3000 bp; denominator is total host length",
+          "unavailable": null
+        },
+        "effective_fg_coverage": {
+          "value": 0.15753110175082452,
+          "units": "fraction of target bases",
+          "basis": "reach 3000 bp; occupancy-weighted, the quantity selection uses",
+          "unavailable": null
+        },
+        "fg_coverage": {
+          "value": 0.15753348269943412,
+          "units": "fraction of target bases",
+          "basis": "reach 3000 bp; denominator is total target length",
+          "unavailable": null
+        },
+        "gap_gini": {
+          "value": 0.5485151445520641,
+          "units": "dimensionless",
+          "basis": "evenness of target gaps",
+          "unavailable": null
+        },
+        "max_gap": {
+          "value": 172770.0,
+          "units": "bp",
+          "basis": "largest target hole",
+          "unavailable": null
+        },
+        "mean_gap": {
+          "value": 31067.12676056338,
+          "units": "bp",
+          "basis": "between adjacent target sites",
+          "unavailable": null
+        },
+        "mean_tm": {
+          "value": 53.45835841053729,
+          "units": "C",
+          "basis": "under the resolved reaction",
+          "unavailable": null
+        },
+        "selectivity_ratio": {
+          "value": 6.159961988492044,
+          "units": "dimensionless",
+          "basis": "effective foreground load over effective background load",
+          "unavailable": null
+        },
+        "total_bg_sites": {
+          "value": 1.0,
+          "units": "exact-match sites",
+          "basis": "exact matches only",
+          "unavailable": null
+        },
+        "total_fg_sites": {
+          "value": 142.0,
+          "units": "exact-match sites",
+          "basis": "exact matches only",
+          "unavailable": null
+        },
+        "worst_host_selectivity_density": {
+          "value": 35.17444760091088,
+          "units": "dimensionless",
+          "basis": "lowest per-host density; null when any host went unmeasured",
+          "unavailable": null
+        }
+      },
+      "message": "Coverage: 17.6% (estimated, binned; fg_coverage is the measured value), Connectivity: 0.00"
+    },
+    {
+      "reading": "worst-case",
+      "size": 6,
+      "limits": {
+        "max_host_coverage": 0.000191
+      },
+      "label": "worst-case_limited",
+      "seconds": 68.2,
+      "returncode": 0,
+      "validation_report_present": true,
+      "validator_issues": [],
+      "primers": [
+        "CGACGATGTCGA",
+        "CGTTGCCGAACA",
+        "CCGTTGCCGTAC",
+        "CGATGCCGATCA",
+        "CCGATGCCGAAC",
+        "AACTCGCCGAAC"
+      ],
+      "delivered": 6,
+      "fg_coverage": 0.15753348269943412,
+      "worst_target_coverage": 0.15753348269943412,
+      "selectivity_density": 351.5653004051196,
+      "total_bg_sites": 1,
+      "bg_coverage": 2.3830537899366603e-05,
+      "worst_host_selectivity_density": 35.17444760091088,
+      "worst_host_background_sites": 1,
+      "worst_host_bg_coverage": 2.4100603438139067e-05,
+      "per_host": {
+        "saureus": {
+          "length_bp": 2821361,
+          "sites": 0,
+          "sites_per_mb": 0.0,
+          "effective_site_load": 27.997712521530058,
+          "coverage": 0.0,
+          "selectivity_density": 35.17444760091088,
+          "unavailable": null,
+          "load_unavailable": null,
+          "comparable": "selectivity_density"
+        },
+        "chr1": {
+          "length_bp": 248956422,
+          "sites": 1,
+          "sites_per_mb": 0.0040167672396898444,
+          "effective_site_load": 221.98074186717565,
+          "coverage": 2.4100603438139067e-05,
+          "selectivity_density": 391.4706546567707,
+          "unavailable": null,
+          "load_unavailable": null,
+          "comparable": "selectivity_density"
+        }
+      },
+      "background_aggregate_recorded": "worst-case",
+      "violations": [],
+      "blocking_violations": [],
+      "advisory_violations": [],
+      "qualified": true,
+      "panel_regime": {
+        "background_aggregate": "worst-case",
+        "limiting": "coverage",
+        "failing": [
+          "coverage"
+        ],
+        "unreferenced": [
+          "worst_hole",
+          "mean_gap",
+          "evenness",
+          "host_coverage",
+          "strand_balance",
+          "strand_alternation",
+          "host_gap_evenness",
+          "convergent_gap",
+          "host_convergent_gap",
+          "weakest_occupancy"
+        ],
+        "criteria": [
+          {
+            "name": "coverage",
+            "value": 0.15753110175082452,
+            "reference": 0.8,
+            "direction": "at_least",
+            "slack": -0.8030861228114694,
+            "units": "fraction",
+            "note": "occupancy-weighted"
+          },
+          {
+            "name": "fg_bg_ratio",
+            "value": 6.159961988492044,
+            "reference": 5.0,
+            "direction": "at_least",
+            "slack": 0.23199239769840876,
+            "units": "ratio",
+            "note": "from the application profile"
+          },
+          {
+            "name": "panel_size",
+            "value": 6.0,
+            "reference": 6.0,
+            "direction": "at_least",
+            "slack": 0.0,
+            "units": "primers",
+            "note": "a request, not a guarantee: selection stops rather than admit a dimerising pair"
+          },
+          {
+            "name": "worst_hole",
+            "value": 172770.0,
+            "reference": null,
+            "direction": null,
+            "slack": null,
+            "units": "bp",
+            "note": "57.6x the 3000 bp reach, 3.92% of the target, no reference: no reach-derived threshold separates published winners"
+          },
+          {
+            "name": "mean_gap",
+            "value": 31067.12676056338,
+            "reference": null,
+            "direction": null,
+            "slack": null,
+            "units": "bp",
+            "note": "10.36x the 3000 bp reach, no reference"
+          },
+          {
+            "name": "evenness",
+            "value": 0.5485151445520641,
+            "reference": null,
+            "direction": null,
+            "slack": null,
+            "units": "Gini",
+            "note": "0 is uniform spacing, no reference: it separates winners on one benchmark and runs backwards on the other"
+          },
+          {
+            "name": "host_coverage",
+            "value": 2.3830537899366603e-05,
+            "reference": null,
+            "direction": null,
+            "slack": null,
+            "units": "fraction",
+            "note": "the only quantity here that sees host site position, no reference"
+          },
+          {
+            "name": "strand_balance",
+            "value": 0.9722222222222222,
+            "reference": null,
+            "direction": null,
+            "slack": null,
+            "units": "ratio",
+            "note": "1 is balanced between strands, no reference"
+          },
+          {
+            "name": "strand_alternation",
+            "value": 0.3404255319148936,
+            "reference": null,
+            "direction": null,
+            "slack": null,
+            "units": "fraction",
+            "note": "adjacent sites on opposite strands, no reference"
+          },
+          {
+            "name": "host_gap_evenness",
+            "value": null,
+            "reference": null,
+            "direction": null,
+            "slack": null,
+            "units": "Gini",
+            "note": "swga 2.0's `off_gap_gini`: distances between host sites, per strand, averaged over strands then hosts. HIGHER is better here, since clustered host sites leave most of the host out of reach. No reference: it carries the second-largest weight in the one set-level model fitted against sequencing breadth, over 46 sets, and that coefficient sits in a table nobody here could open"
+          },
+          {
+            "name": "convergent_gap",
+            "value": 153104.0,
+            "reference": null,
+            "direction": null,
+            "slack": null,
+            "units": "bp",
+            "note": "widest target stretch with no convergent pair, no reference"
+          },
+          {
+            "name": "host_convergent_gap",
+            "value": 248956422.0,
+            "reference": null,
+            "direction": null,
+            "slack": null,
+            "units": "bp",
+            "note": "widest host stretch with no convergent pair; LARGER is better here, since a host whose sites cannot face each other amplifies little. No reference"
+          },
+          {
+            "name": "weakest_occupancy",
+            "value": 0.999974761247399,
+            "reference": null,
+            "direction": null,
+            "slack": null,
+            "units": "fraction",
+            "note": "median 1, strongest 1, spread 1.0x; no reference, since no validated floor on occupancy exists"
+          }
+        ]
+      },
+      "assessment_metrics": {
+        "bg_coverage": {
+          "value": 2.3830537899366603e-05,
+          "units": "fraction of host bases",
+          "basis": "reach 3000 bp; denominator is total host length",
+          "unavailable": null
+        },
+        "effective_fg_coverage": {
+          "value": 0.15753110175082452,
+          "units": "fraction of target bases",
+          "basis": "reach 3000 bp; occupancy-weighted, the quantity selection uses",
+          "unavailable": null
+        },
+        "fg_coverage": {
+          "value": 0.15753348269943412,
+          "units": "fraction of target bases",
+          "basis": "reach 3000 bp; denominator is total target length",
+          "unavailable": null
+        },
+        "gap_gini": {
+          "value": 0.5485151445520641,
+          "units": "dimensionless",
+          "basis": "evenness of target gaps",
+          "unavailable": null
+        },
+        "max_gap": {
+          "value": 172770.0,
+          "units": "bp",
+          "basis": "largest target hole",
+          "unavailable": null
+        },
+        "mean_gap": {
+          "value": 31067.12676056338,
+          "units": "bp",
+          "basis": "between adjacent target sites",
+          "unavailable": null
+        },
+        "mean_tm": {
+          "value": 53.45835841053729,
+          "units": "C",
+          "basis": "under the resolved reaction",
+          "unavailable": null
+        },
+        "selectivity_ratio": {
+          "value": 6.159961988492044,
+          "units": "dimensionless",
+          "basis": "effective foreground load over effective background load",
+          "unavailable": null
+        },
+        "total_bg_sites": {
+          "value": 1.0,
+          "units": "exact-match sites",
+          "basis": "exact matches only",
+          "unavailable": null
+        },
+        "total_fg_sites": {
+          "value": 142.0,
+          "units": "exact-match sites",
+          "basis": "exact matches only",
+          "unavailable": null
+        },
+        "worst_host_selectivity_density": {
+          "value": 35.17444760091088,
+          "units": "dimensionless",
+          "basis": "lowest per-host density; null when any host went unmeasured",
+          "unavailable": null
+        }
+      },
+      "message": "Coverage: 17.6% (estimated, binned; fg_coverage is the measured value), Connectivity: 0.00"
+    },
+    {
+      "reading": "sum",
+      "size": 12,
+      "limits": {},
+      "label": "sum_unlimited",
+      "seconds": 70.9,
+      "returncode": 0,
+      "validation_report_present": true,
+      "validator_issues": [],
+      "primers": [
+        "CGACGATGTCGA",
+        "CGTTGCCGAACA",
+        "CCGTTGCCGTAC",
+        "CGATGCCGATCA",
+        "CCGATGCCGAAC",
+        "AACTCGCCGAAC",
+        "CGATGCCGAACA",
+        "GCGCCGATAACC",
+        "ACCGATGCCGAT",
+        "GCCCGATACCGA",
+        "GACGCCGTTGAC",
+        "CCGCCGATGAAC"
+      ],
+      "delivered": 12,
+      "fg_coverage": 0.20668375521247495,
+      "worst_target_coverage": 0.20668375521247495,
+      "selectivity_density": 275.3682290496398,
+      "total_bg_sites": 3,
+      "bg_coverage": 7.149161369809981e-05,
+      "worst_host_selectivity_density": null,
+      "worst_host_background_sites": 3,
+      "worst_host_bg_coverage": 7.23018103144172e-05,
+      "per_host": {
+        "saureus": {
+          "length_bp": 2821361,
+          "sites": 0,
+          "sites_per_mb": 0.0,
+          "effective_site_load": null,
+          "coverage": 0.0,
+          "selectivity_density": null,
+          "unavailable": null,
+          "load_unavailable": "the per-host occupancy load is computed only under background_aggregate='worst-case', where a panel limit reads it. The pooled load for this panel is in effective_bg_sites",
+          "comparable": "selectivity_density"
+        },
+        "chr1": {
+          "length_bp": 248956422,
+          "sites": 3,
+          "sites_per_mb": 0.012050301719069532,
+          "effective_site_load": null,
+          "coverage": 7.23018103144172e-05,
+          "selectivity_density": null,
+          "unavailable": null,
+          "load_unavailable": "the per-host occupancy load is computed only under background_aggregate='worst-case', where a panel limit reads it. The pooled load for this panel is in effective_bg_sites",
+          "comparable": "selectivity_density"
+        }
+      },
+      "background_aggregate_recorded": "sum",
+      "violations": [],
+      "blocking_violations": [],
+      "advisory_violations": [],
+      "qualified": true,
+      "panel_regime": {
+        "background_aggregate": "sum",
+        "limiting": "coverage",
+        "failing": [
+          "coverage",
+          "fg_bg_ratio"
+        ],
+        "unreferenced": [
+          "worst_hole",
+          "mean_gap",
+          "evenness",
+          "host_coverage",
+          "strand_balance",
+          "strand_alternation",
+          "host_gap_evenness",
+          "convergent_gap",
+          "host_convergent_gap",
+          "weakest_occupancy"
+        ],
+        "criteria": [
+          {
+            "name": "coverage",
+            "value": 0.20668103127977008,
+            "reference": 0.8,
+            "direction": "at_least",
+            "slack": -0.7416487109002874,
+            "units": "fraction",
+            "note": "occupancy-weighted"
+          },
+          {
+            "name": "fg_bg_ratio",
+            "value": 4.824872710217706,
+            "reference": 5.0,
+            "direction": "at_least",
+            "slack": -0.0350254579564588,
+            "units": "ratio",
+            "note": "from the application profile"
+          },
+          {
+            "name": "panel_size",
+            "value": 12.0,
+            "reference": 12.0,
+            "direction": "at_least",
+            "slack": 0.0,
+            "units": "primers",
+            "note": "a request, not a guarantee: selection stops rather than admit a dimerising pair"
+          },
+          {
+            "name": "worst_hole",
+            "value": 140351.0,
+            "reference": null,
+            "direction": null,
+            "slack": null,
+            "units": "bp",
+            "note": "46.8x the 3000 bp reach, 3.18% of the target, no reference: no reach-derived threshold separates published winners"
+          },
+          {
+            "name": "mean_gap",
+            "value": 23341.439153439154,
+            "reference": null,
+            "direction": null,
+            "slack": null,
+            "units": "bp",
+            "note": "7.78x the 3000 bp reach, no reference"
+          },
+          {
+            "name": "evenness",
+            "value": 0.5530895104181663,
+            "reference": null,
+            "direction": null,
+            "slack": null,
+            "units": "Gini",
+            "note": "0 is uniform spacing, no reference: it separates winners on one benchmark and runs backwards on the other"
+          },
+          {
+            "name": "host_coverage",
+            "value": 7.149161369809981e-05,
+            "reference": null,
+            "direction": null,
+            "slack": null,
+            "units": "fraction",
+            "note": "the only quantity here that sees host site position, no reference"
+          },
+          {
+            "name": "strand_balance",
+            "value": 0.9090909090909091,
+            "reference": null,
+            "direction": null,
+            "slack": null,
+            "units": "ratio",
+            "note": "1 is balanced between strands, no reference"
+          },
+          {
+            "name": "strand_alternation",
+            "value": 0.3882978723404255,
+            "reference": null,
+            "direction": null,
+            "slack": null,
+            "units": "fraction",
+            "note": "adjacent sites on opposite strands, no reference"
+          },
+          {
+            "name": "host_gap_evenness",
+            "value": 0.0,
+            "reference": null,
+            "direction": null,
+            "slack": null,
+            "units": "Gini",
+            "note": "swga 2.0's `off_gap_gini`: distances between host sites, per strand, averaged over strands then hosts. HIGHER is better here, since clustered host sites leave most of the host out of reach. No reference: it carries the second-largest weight in the one set-level model fitted against sequencing breadth, over 46 sets, and that coefficient sits in a table nobody here could open"
+          },
+          {
+            "name": "convergent_gap",
+            "value": 140351.0,
+            "reference": null,
+            "direction": null,
+            "slack": null,
+            "units": "bp",
+            "note": "widest target stretch with no convergent pair, no reference"
+          },
+          {
+            "name": "host_convergent_gap",
+            "value": 5427819.0,
+            "reference": null,
+            "direction": null,
+            "slack": null,
+            "units": "bp",
+            "note": "widest host stretch with no convergent pair; LARGER is better here, since a host whose sites cannot face each other amplifies little. No reference"
+          },
+          {
+            "name": "weakest_occupancy",
+            "value": 0.999974761247399,
+            "reference": null,
+            "direction": null,
+            "slack": null,
+            "units": "fraction",
+            "note": "median 1, strongest 1, spread 1.0x; no reference, since no validated floor on occupancy exists"
+          }
+        ]
+      },
+      "assessment_metrics": {
+        "bg_coverage": {
+          "value": 7.149161369809981e-05,
+          "units": "fraction of host bases",
+          "basis": "reach 3000 bp; denominator is total host length",
+          "unavailable": null
+        },
+        "effective_fg_coverage": {
+          "value": 0.20668103127977008,
+          "units": "fraction of target bases",
+          "basis": "reach 3000 bp; occupancy-weighted, the quantity selection uses",
+          "unavailable": null
+        },
+        "fg_coverage": {
+          "value": 0.20668375521247495,
+          "units": "fraction of target bases",
+          "basis": "reach 3000 bp; denominator is total target length",
+          "unavailable": null
+        },
+        "gap_gini": {
+          "value": 0.5530895104181663,
+          "units": "dimensionless",
+          "basis": "evenness of target gaps",
+          "unavailable": null
+        },
+        "max_gap": {
+          "value": 140351.0,
+          "units": "bp",
+          "basis": "largest target hole",
+          "unavailable": null
+        },
+        "mean_gap": {
+          "value": 23341.439153439154,
+          "units": "bp",
+          "basis": "between adjacent target sites",
+          "unavailable": null
+        },
+        "mean_tm": {
+          "value": 53.964768087213656,
+          "units": "C",
+          "basis": "under the resolved reaction",
+          "unavailable": null
+        },
+        "selectivity_ratio": {
+          "value": 4.824872710217706,
+          "units": "dimensionless",
+          "basis": "effective foreground load over effective background load",
+          "unavailable": null
+        },
+        "total_bg_sites": {
+          "value": 3.0,
+          "units": "exact-match sites",
+          "basis": "exact matches only",
+          "unavailable": null
+        },
+        "total_fg_sites": {
+          "value": 189.0,
+          "units": "exact-match sites",
+          "basis": "exact matches only",
+          "unavailable": null
+        },
+        "worst_host_selectivity_density": {
+          "value": null,
+          "units": "dimensionless",
+          "basis": "lowest per-host density; null when any host went unmeasured",
+          "unavailable": "not computed for this panel"
+        }
+      },
+      "message": "Coverage: 23.0% (estimated, binned; fg_coverage is the measured value), Connectivity: 0.00"
+    },
+    {
+      "reading": "sum",
+      "size": 12,
+      "limits": {
+        "max_host_coverage": 0.000191
+      },
+      "label": "sum_limited",
+      "seconds": 71.3,
+      "returncode": 0,
+      "validation_report_present": true,
+      "validator_issues": [],
+      "primers": [
+        "CGACGATGTCGA",
+        "CGTTGCCGAACA",
+        "CCGTTGCCGTAC",
+        "CGATGCCGATCA",
+        "CCGATGCCGAAC",
+        "AACTCGCCGAAC",
+        "CGATGCCGAACA",
+        "GCGCCGATAACC",
+        "ACCGATGCCGAT",
+        "GCCCGATACCGA",
+        "GACGCCGTTGAC",
+        "CCGCCGATGAAC"
+      ],
+      "delivered": 12,
+      "fg_coverage": 0.20668375521247495,
+      "worst_target_coverage": 0.20668375521247495,
+      "selectivity_density": 275.3682290496398,
+      "total_bg_sites": 3,
+      "bg_coverage": 7.149161369809981e-05,
+      "worst_host_selectivity_density": null,
+      "worst_host_background_sites": 3,
+      "worst_host_bg_coverage": 7.23018103144172e-05,
+      "per_host": {
+        "saureus": {
+          "length_bp": 2821361,
+          "sites": 0,
+          "sites_per_mb": 0.0,
+          "effective_site_load": null,
+          "coverage": 0.0,
+          "selectivity_density": null,
+          "unavailable": null,
+          "load_unavailable": "the per-host occupancy load is computed only under background_aggregate='worst-case', where a panel limit reads it. The pooled load for this panel is in effective_bg_sites",
+          "comparable": "selectivity_density"
+        },
+        "chr1": {
+          "length_bp": 248956422,
+          "sites": 3,
+          "sites_per_mb": 0.012050301719069532,
+          "effective_site_load": null,
+          "coverage": 7.23018103144172e-05,
+          "selectivity_density": null,
+          "unavailable": null,
+          "load_unavailable": "the per-host occupancy load is computed only under background_aggregate='worst-case', where a panel limit reads it. The pooled load for this panel is in effective_bg_sites",
+          "comparable": "selectivity_density"
+        }
+      },
+      "background_aggregate_recorded": "sum",
+      "violations": [],
+      "blocking_violations": [],
+      "advisory_violations": [],
+      "qualified": true,
+      "panel_regime": {
+        "background_aggregate": "sum",
+        "limiting": "coverage",
+        "failing": [
+          "coverage",
+          "fg_bg_ratio"
+        ],
+        "unreferenced": [
+          "worst_hole",
+          "mean_gap",
+          "evenness",
+          "host_coverage",
+          "strand_balance",
+          "strand_alternation",
+          "host_gap_evenness",
+          "convergent_gap",
+          "host_convergent_gap",
+          "weakest_occupancy"
+        ],
+        "criteria": [
+          {
+            "name": "coverage",
+            "value": 0.20668103127977008,
+            "reference": 0.8,
+            "direction": "at_least",
+            "slack": -0.7416487109002874,
+            "units": "fraction",
+            "note": "occupancy-weighted"
+          },
+          {
+            "name": "fg_bg_ratio",
+            "value": 4.824872710217706,
+            "reference": 5.0,
+            "direction": "at_least",
+            "slack": -0.0350254579564588,
+            "units": "ratio",
+            "note": "from the application profile"
+          },
+          {
+            "name": "panel_size",
+            "value": 12.0,
+            "reference": 12.0,
+            "direction": "at_least",
+            "slack": 0.0,
+            "units": "primers",
+            "note": "a request, not a guarantee: selection stops rather than admit a dimerising pair"
+          },
+          {
+            "name": "worst_hole",
+            "value": 140351.0,
+            "reference": null,
+            "direction": null,
+            "slack": null,
+            "units": "bp",
+            "note": "46.8x the 3000 bp reach, 3.18% of the target, no reference: no reach-derived threshold separates published winners"
+          },
+          {
+            "name": "mean_gap",
+            "value": 23341.439153439154,
+            "reference": null,
+            "direction": null,
+            "slack": null,
+            "units": "bp",
+            "note": "7.78x the 3000 bp reach, no reference"
+          },
+          {
+            "name": "evenness",
+            "value": 0.5530895104181663,
+            "reference": null,
+            "direction": null,
+            "slack": null,
+            "units": "Gini",
+            "note": "0 is uniform spacing, no reference: it separates winners on one benchmark and runs backwards on the other"
+          },
+          {
+            "name": "host_coverage",
+            "value": 7.149161369809981e-05,
+            "reference": null,
+            "direction": null,
+            "slack": null,
+            "units": "fraction",
+            "note": "the only quantity here that sees host site position, no reference"
+          },
+          {
+            "name": "strand_balance",
+            "value": 0.9090909090909091,
+            "reference": null,
+            "direction": null,
+            "slack": null,
+            "units": "ratio",
+            "note": "1 is balanced between strands, no reference"
+          },
+          {
+            "name": "strand_alternation",
+            "value": 0.3882978723404255,
+            "reference": null,
+            "direction": null,
+            "slack": null,
+            "units": "fraction",
+            "note": "adjacent sites on opposite strands, no reference"
+          },
+          {
+            "name": "host_gap_evenness",
+            "value": 0.0,
+            "reference": null,
+            "direction": null,
+            "slack": null,
+            "units": "Gini",
+            "note": "swga 2.0's `off_gap_gini`: distances between host sites, per strand, averaged over strands then hosts. HIGHER is better here, since clustered host sites leave most of the host out of reach. No reference: it carries the second-largest weight in the one set-level model fitted against sequencing breadth, over 46 sets, and that coefficient sits in a table nobody here could open"
+          },
+          {
+            "name": "convergent_gap",
+            "value": 140351.0,
+            "reference": null,
+            "direction": null,
+            "slack": null,
+            "units": "bp",
+            "note": "widest target stretch with no convergent pair, no reference"
+          },
+          {
+            "name": "host_convergent_gap",
+            "value": 5427819.0,
+            "reference": null,
+            "direction": null,
+            "slack": null,
+            "units": "bp",
+            "note": "widest host stretch with no convergent pair; LARGER is better here, since a host whose sites cannot face each other amplifies little. No reference"
+          },
+          {
+            "name": "weakest_occupancy",
+            "value": 0.999974761247399,
+            "reference": null,
+            "direction": null,
+            "slack": null,
+            "units": "fraction",
+            "note": "median 1, strongest 1, spread 1.0x; no reference, since no validated floor on occupancy exists"
+          }
+        ]
+      },
+      "assessment_metrics": {
+        "bg_coverage": {
+          "value": 7.149161369809981e-05,
+          "units": "fraction of host bases",
+          "basis": "reach 3000 bp; denominator is total host length",
+          "unavailable": null
+        },
+        "effective_fg_coverage": {
+          "value": 0.20668103127977008,
+          "units": "fraction of target bases",
+          "basis": "reach 3000 bp; occupancy-weighted, the quantity selection uses",
+          "unavailable": null
+        },
+        "fg_coverage": {
+          "value": 0.20668375521247495,
+          "units": "fraction of target bases",
+          "basis": "reach 3000 bp; denominator is total target length",
+          "unavailable": null
+        },
+        "gap_gini": {
+          "value": 0.5530895104181663,
+          "units": "dimensionless",
+          "basis": "evenness of target gaps",
+          "unavailable": null
+        },
+        "max_gap": {
+          "value": 140351.0,
+          "units": "bp",
+          "basis": "largest target hole",
+          "unavailable": null
+        },
+        "mean_gap": {
+          "value": 23341.439153439154,
+          "units": "bp",
+          "basis": "between adjacent target sites",
+          "unavailable": null
+        },
+        "mean_tm": {
+          "value": 53.964768087213656,
+          "units": "C",
+          "basis": "under the resolved reaction",
+          "unavailable": null
+        },
+        "selectivity_ratio": {
+          "value": 4.824872710217706,
+          "units": "dimensionless",
+          "basis": "effective foreground load over effective background load",
+          "unavailable": null
+        },
+        "total_bg_sites": {
+          "value": 3.0,
+          "units": "exact-match sites",
+          "basis": "exact matches only",
+          "unavailable": null
+        },
+        "total_fg_sites": {
+          "value": 189.0,
+          "units": "exact-match sites",
+          "basis": "exact matches only",
+          "unavailable": null
+        },
+        "worst_host_selectivity_density": {
+          "value": null,
+          "units": "dimensionless",
+          "basis": "lowest per-host density; null when any host went unmeasured",
+          "unavailable": "not computed for this panel"
+        }
+      },
+      "message": "Coverage: 23.0% (estimated, binned; fg_coverage is the measured value), Connectivity: 0.00"
+    },
+    {
+      "reading": "worst-case",
+      "size": 12,
+      "limits": {},
+      "label": "worst-case_unlimited",
+      "seconds": 70.7,
+      "returncode": 0,
+      "validation_report_present": true,
+      "validator_issues": [],
+      "primers": [
+        "CGACGATGTCGA",
+        "CGTTGCCGAACA",
+        "CCGTTGCCGTAC",
+        "CGATGCCGATCA",
+        "CCGATGCCGAAC",
+        "AACTCGCCGAAC",
+        "CGATGCCGAACA",
+        "GCGCCGATAACC",
+        "ACCGATGCCGAT",
+        "GCCCGATACCGA",
+        "GACGCCGTTGAC",
+        "CCGCCGATGAAC"
+      ],
+      "delivered": 12,
+      "fg_coverage": 0.20668375521247495,
+      "worst_target_coverage": 0.20668375521247495,
+      "selectivity_density": 275.3682290496398,
+      "total_bg_sites": 3,
+      "bg_coverage": 7.149161369809981e-05,
+      "worst_host_selectivity_density": 28.8374151002429,
+      "worst_host_background_sites": 3,
+      "worst_host_bg_coverage": 7.23018103144172e-05,
+      "per_host": {
+        "saureus": {
+          "length_bp": 2821361,
+          "sites": 0,
+          "sites_per_mb": 0.0,
+          "effective_site_load": 54.995882223795405,
+          "coverage": 0.0,
+          "selectivity_density": 28.8374151002429,
+          "unavailable": null,
+          "load_unavailable": null,
+          "comparable": "selectivity_density"
+        },
+        "chr1": {
+          "length_bp": 248956422,
+          "sites": 3,
+          "sites_per_mb": 0.012050301719069532,
+          "effective_site_load": 458.9665988831164,
+          "coverage": 7.23018103144172e-05,
+          "selectivity_density": 304.9088963694207,
+          "unavailable": null,
+          "load_unavailable": null,
+          "comparable": "selectivity_density"
+        }
+      },
+      "background_aggregate_recorded": "worst-case",
+      "violations": [],
+      "blocking_violations": [],
+      "advisory_violations": [],
+      "qualified": true,
+      "panel_regime": {
+        "background_aggregate": "worst-case",
+        "limiting": "coverage",
+        "failing": [
+          "coverage",
+          "fg_bg_ratio"
+        ],
+        "unreferenced": [
+          "worst_hole",
+          "mean_gap",
+          "evenness",
+          "host_coverage",
+          "strand_balance",
+          "strand_alternation",
+          "host_gap_evenness",
+          "convergent_gap",
+          "host_convergent_gap",
+          "weakest_occupancy"
+        ],
+        "criteria": [
+          {
+            "name": "coverage",
+            "value": 0.20668103127977008,
+            "reference": 0.8,
+            "direction": "at_least",
+            "slack": -0.7416487109002874,
+            "units": "fraction",
+            "note": "occupancy-weighted"
+          },
+          {
+            "name": "fg_bg_ratio",
+            "value": 4.824872710217706,
+            "reference": 5.0,
+            "direction": "at_least",
+            "slack": -0.0350254579564588,
+            "units": "ratio",
+            "note": "from the application profile"
+          },
+          {
+            "name": "panel_size",
+            "value": 12.0,
+            "reference": 12.0,
+            "direction": "at_least",
+            "slack": 0.0,
+            "units": "primers",
+            "note": "a request, not a guarantee: selection stops rather than admit a dimerising pair"
+          },
+          {
+            "name": "worst_hole",
+            "value": 140351.0,
+            "reference": null,
+            "direction": null,
+            "slack": null,
+            "units": "bp",
+            "note": "46.8x the 3000 bp reach, 3.18% of the target, no reference: no reach-derived threshold separates published winners"
+          },
+          {
+            "name": "mean_gap",
+            "value": 23341.439153439154,
+            "reference": null,
+            "direction": null,
+            "slack": null,
+            "units": "bp",
+            "note": "7.78x the 3000 bp reach, no reference"
+          },
+          {
+            "name": "evenness",
+            "value": 0.5530895104181663,
+            "reference": null,
+            "direction": null,
+            "slack": null,
+            "units": "Gini",
+            "note": "0 is uniform spacing, no reference: it separates winners on one benchmark and runs backwards on the other"
+          },
+          {
+            "name": "host_coverage",
+            "value": 7.149161369809981e-05,
+            "reference": null,
+            "direction": null,
+            "slack": null,
+            "units": "fraction",
+            "note": "the only quantity here that sees host site position, no reference"
+          },
+          {
+            "name": "strand_balance",
+            "value": 0.9090909090909091,
+            "reference": null,
+            "direction": null,
+            "slack": null,
+            "units": "ratio",
+            "note": "1 is balanced between strands, no reference"
+          },
+          {
+            "name": "strand_alternation",
+            "value": 0.3882978723404255,
+            "reference": null,
+            "direction": null,
+            "slack": null,
+            "units": "fraction",
+            "note": "adjacent sites on opposite strands, no reference"
+          },
+          {
+            "name": "host_gap_evenness",
+            "value": 0.0,
+            "reference": null,
+            "direction": null,
+            "slack": null,
+            "units": "Gini",
+            "note": "swga 2.0's `off_gap_gini`: distances between host sites, per strand, averaged over strands then hosts. HIGHER is better here, since clustered host sites leave most of the host out of reach. No reference: it carries the second-largest weight in the one set-level model fitted against sequencing breadth, over 46 sets, and that coefficient sits in a table nobody here could open"
+          },
+          {
+            "name": "convergent_gap",
+            "value": 140351.0,
+            "reference": null,
+            "direction": null,
+            "slack": null,
+            "units": "bp",
+            "note": "widest target stretch with no convergent pair, no reference"
+          },
+          {
+            "name": "host_convergent_gap",
+            "value": 5427819.0,
+            "reference": null,
+            "direction": null,
+            "slack": null,
+            "units": "bp",
+            "note": "widest host stretch with no convergent pair; LARGER is better here, since a host whose sites cannot face each other amplifies little. No reference"
+          },
+          {
+            "name": "weakest_occupancy",
+            "value": 0.999974761247399,
+            "reference": null,
+            "direction": null,
+            "slack": null,
+            "units": "fraction",
+            "note": "median 1, strongest 1, spread 1.0x; no reference, since no validated floor on occupancy exists"
+          }
+        ]
+      },
+      "assessment_metrics": {
+        "bg_coverage": {
+          "value": 7.149161369809981e-05,
+          "units": "fraction of host bases",
+          "basis": "reach 3000 bp; denominator is total host length",
+          "unavailable": null
+        },
+        "effective_fg_coverage": {
+          "value": 0.20668103127977008,
+          "units": "fraction of target bases",
+          "basis": "reach 3000 bp; occupancy-weighted, the quantity selection uses",
+          "unavailable": null
+        },
+        "fg_coverage": {
+          "value": 0.20668375521247495,
+          "units": "fraction of target bases",
+          "basis": "reach 3000 bp; denominator is total target length",
+          "unavailable": null
+        },
+        "gap_gini": {
+          "value": 0.5530895104181663,
+          "units": "dimensionless",
+          "basis": "evenness of target gaps",
+          "unavailable": null
+        },
+        "max_gap": {
+          "value": 140351.0,
+          "units": "bp",
+          "basis": "largest target hole",
+          "unavailable": null
+        },
+        "mean_gap": {
+          "value": 23341.439153439154,
+          "units": "bp",
+          "basis": "between adjacent target sites",
+          "unavailable": null
+        },
+        "mean_tm": {
+          "value": 53.964768087213656,
+          "units": "C",
+          "basis": "under the resolved reaction",
+          "unavailable": null
+        },
+        "selectivity_ratio": {
+          "value": 4.824872710217706,
+          "units": "dimensionless",
+          "basis": "effective foreground load over effective background load",
+          "unavailable": null
+        },
+        "total_bg_sites": {
+          "value": 3.0,
+          "units": "exact-match sites",
+          "basis": "exact matches only",
+          "unavailable": null
+        },
+        "total_fg_sites": {
+          "value": 189.0,
+          "units": "exact-match sites",
+          "basis": "exact matches only",
+          "unavailable": null
+        },
+        "worst_host_selectivity_density": {
+          "value": 28.8374151002429,
+          "units": "dimensionless",
+          "basis": "lowest per-host density; null when any host went unmeasured",
+          "unavailable": null
+        }
+      },
+      "message": "Coverage: 23.0% (estimated, binned; fg_coverage is the measured value), Connectivity: 0.00"
+    },
+    {
+      "reading": "worst-case",
+      "size": 12,
+      "limits": {
+        "max_host_coverage": 0.000191
+      },
+      "label": "worst-case_limited",
+      "seconds": 70.3,
+      "returncode": 0,
+      "validation_report_present": true,
+      "validator_issues": [],
+      "primers": [
+        "CGACGATGTCGA",
+        "CGTTGCCGAACA",
+        "CCGTTGCCGTAC",
+        "CGATGCCGATCA",
+        "CCGATGCCGAAC",
+        "AACTCGCCGAAC",
+        "CGATGCCGAACA",
+        "GCGCCGATAACC",
+        "ACCGATGCCGAT",
+        "GCCCGATACCGA",
+        "GACGCCGTTGAC",
+        "CCGCCGATGAAC"
+      ],
+      "delivered": 12,
+      "fg_coverage": 0.20668375521247495,
+      "worst_target_coverage": 0.20668375521247495,
+      "selectivity_density": 275.3682290496398,
+      "total_bg_sites": 3,
+      "bg_coverage": 7.149161369809981e-05,
+      "worst_host_selectivity_density": 28.8374151002429,
+      "worst_host_background_sites": 3,
+      "worst_host_bg_coverage": 7.23018103144172e-05,
+      "per_host": {
+        "saureus": {
+          "length_bp": 2821361,
+          "sites": 0,
+          "sites_per_mb": 0.0,
+          "effective_site_load": 54.995882223795405,
+          "coverage": 0.0,
+          "selectivity_density": 28.8374151002429,
+          "unavailable": null,
+          "load_unavailable": null,
+          "comparable": "selectivity_density"
+        },
+        "chr1": {
+          "length_bp": 248956422,
+          "sites": 3,
+          "sites_per_mb": 0.012050301719069532,
+          "effective_site_load": 458.9665988831164,
+          "coverage": 7.23018103144172e-05,
+          "selectivity_density": 304.9088963694207,
+          "unavailable": null,
+          "load_unavailable": null,
+          "comparable": "selectivity_density"
+        }
+      },
+      "background_aggregate_recorded": "worst-case",
+      "violations": [],
+      "blocking_violations": [],
+      "advisory_violations": [],
+      "qualified": true,
+      "panel_regime": {
+        "background_aggregate": "worst-case",
+        "limiting": "coverage",
+        "failing": [
+          "coverage",
+          "fg_bg_ratio"
+        ],
+        "unreferenced": [
+          "worst_hole",
+          "mean_gap",
+          "evenness",
+          "host_coverage",
+          "strand_balance",
+          "strand_alternation",
+          "host_gap_evenness",
+          "convergent_gap",
+          "host_convergent_gap",
+          "weakest_occupancy"
+        ],
+        "criteria": [
+          {
+            "name": "coverage",
+            "value": 0.20668103127977008,
+            "reference": 0.8,
+            "direction": "at_least",
+            "slack": -0.7416487109002874,
+            "units": "fraction",
+            "note": "occupancy-weighted"
+          },
+          {
+            "name": "fg_bg_ratio",
+            "value": 4.824872710217706,
+            "reference": 5.0,
+            "direction": "at_least",
+            "slack": -0.0350254579564588,
+            "units": "ratio",
+            "note": "from the application profile"
+          },
+          {
+            "name": "panel_size",
+            "value": 12.0,
+            "reference": 12.0,
+            "direction": "at_least",
+            "slack": 0.0,
+            "units": "primers",
+            "note": "a request, not a guarantee: selection stops rather than admit a dimerising pair"
+          },
+          {
+            "name": "worst_hole",
+            "value": 140351.0,
+            "reference": null,
+            "direction": null,
+            "slack": null,
+            "units": "bp",
+            "note": "46.8x the 3000 bp reach, 3.18% of the target, no reference: no reach-derived threshold separates published winners"
+          },
+          {
+            "name": "mean_gap",
+            "value": 23341.439153439154,
+            "reference": null,
+            "direction": null,
+            "slack": null,
+            "units": "bp",
+            "note": "7.78x the 3000 bp reach, no reference"
+          },
+          {
+            "name": "evenness",
+            "value": 0.5530895104181663,
+            "reference": null,
+            "direction": null,
+            "slack": null,
+            "units": "Gini",
+            "note": "0 is uniform spacing, no reference: it separates winners on one benchmark and runs backwards on the other"
+          },
+          {
+            "name": "host_coverage",
+            "value": 7.149161369809981e-05,
+            "reference": null,
+            "direction": null,
+            "slack": null,
+            "units": "fraction",
+            "note": "the only quantity here that sees host site position, no reference"
+          },
+          {
+            "name": "strand_balance",
+            "value": 0.9090909090909091,
+            "reference": null,
+            "direction": null,
+            "slack": null,
+            "units": "ratio",
+            "note": "1 is balanced between strands, no reference"
+          },
+          {
+            "name": "strand_alternation",
+            "value": 0.3882978723404255,
+            "reference": null,
+            "direction": null,
+            "slack": null,
+            "units": "fraction",
+            "note": "adjacent sites on opposite strands, no reference"
+          },
+          {
+            "name": "host_gap_evenness",
+            "value": 0.0,
+            "reference": null,
+            "direction": null,
+            "slack": null,
+            "units": "Gini",
+            "note": "swga 2.0's `off_gap_gini`: distances between host sites, per strand, averaged over strands then hosts. HIGHER is better here, since clustered host sites leave most of the host out of reach. No reference: it carries the second-largest weight in the one set-level model fitted against sequencing breadth, over 46 sets, and that coefficient sits in a table nobody here could open"
+          },
+          {
+            "name": "convergent_gap",
+            "value": 140351.0,
+            "reference": null,
+            "direction": null,
+            "slack": null,
+            "units": "bp",
+            "note": "widest target stretch with no convergent pair, no reference"
+          },
+          {
+            "name": "host_convergent_gap",
+            "value": 5427819.0,
+            "reference": null,
+            "direction": null,
+            "slack": null,
+            "units": "bp",
+            "note": "widest host stretch with no convergent pair; LARGER is better here, since a host whose sites cannot face each other amplifies little. No reference"
+          },
+          {
+            "name": "weakest_occupancy",
+            "value": 0.999974761247399,
+            "reference": null,
+            "direction": null,
+            "slack": null,
+            "units": "fraction",
+            "note": "median 1, strongest 1, spread 1.0x; no reference, since no validated floor on occupancy exists"
+          }
+        ]
+      },
+      "assessment_metrics": {
+        "bg_coverage": {
+          "value": 7.149161369809981e-05,
+          "units": "fraction of host bases",
+          "basis": "reach 3000 bp; denominator is total host length",
+          "unavailable": null
+        },
+        "effective_fg_coverage": {
+          "value": 0.20668103127977008,
+          "units": "fraction of target bases",
+          "basis": "reach 3000 bp; occupancy-weighted, the quantity selection uses",
+          "unavailable": null
+        },
+        "fg_coverage": {
+          "value": 0.20668375521247495,
+          "units": "fraction of target bases",
+          "basis": "reach 3000 bp; denominator is total target length",
+          "unavailable": null
+        },
+        "gap_gini": {
+          "value": 0.5530895104181663,
+          "units": "dimensionless",
+          "basis": "evenness of target gaps",
+          "unavailable": null
+        },
+        "max_gap": {
+          "value": 140351.0,
+          "units": "bp",
+          "basis": "largest target hole",
+          "unavailable": null
+        },
+        "mean_gap": {
+          "value": 23341.439153439154,
+          "units": "bp",
+          "basis": "between adjacent target sites",
+          "unavailable": null
+        },
+        "mean_tm": {
+          "value": 53.964768087213656,
+          "units": "C",
+          "basis": "under the resolved reaction",
+          "unavailable": null
+        },
+        "selectivity_ratio": {
+          "value": 4.824872710217706,
+          "units": "dimensionless",
+          "basis": "effective foreground load over effective background load",
+          "unavailable": null
+        },
+        "total_bg_sites": {
+          "value": 3.0,
+          "units": "exact-match sites",
+          "basis": "exact matches only",
+          "unavailable": null
+        },
+        "total_fg_sites": {
+          "value": 189.0,
+          "units": "exact-match sites",
+          "basis": "exact matches only",
+          "unavailable": null
+        },
+        "worst_host_selectivity_density": {
+          "value": 28.8374151002429,
+          "units": "dimensionless",
+          "basis": "lowest per-host density; null when any host went unmeasured",
+          "unavailable": null
+        }
+      },
+      "message": "Coverage: 23.0% (estimated, binned; fg_coverage is the measured value), Connectivity: 0.00"
+    },
+    {
+      "reading": "sum",
+      "size": 24,
+      "limits": {},
+      "label": "sum_unlimited",
+      "seconds": 104.2,
+      "returncode": 0,
+      "validation_report_present": true,
+      "validator_issues": [],
+      "primers": [
+        "CGACGATGTCGA",
+        "CGTTGCCGAACA",
+        "CCGTTGCCGTAC",
+        "CGATGCCGATCA",
+        "CCGATGCCGAAC",
+        "AACTCGCCGAAC",
+        "CGATGCCGAACA",
+        "GCGCCGATAACC",
+        "ACCGATGCCGAT",
+        "GCCCGATACCGA",
+        "GACGCCGTTGAC",
+        "AACTGCCGTTGC",
+        "CCGCCGATGAAC",
+        "CCGTTGCCGATA",
+        "CGCCGGATTGTC",
+        "GACGCCGATACC",
+        "AACACGCCGATG",
+        "AACTCGCCGATG",
+        "AACTGGCCGATG",
+        "GCCGCCGAATAC",
+        "CCGTAGCCGAAC",
+        "CGCCGAATTGAC",
+        "ATCTCGCCGAAC",
+        "AACTCGCCGTTG"
+      ],
+      "delivered": 24,
+      "fg_coverage": 0.2627969149946096,
+      "worst_target_coverage": 0.2627969149946096,
+      "selectivity_density": 140.964922643752,
+      "total_bg_sites": 8,
+      "bg_coverage": 0.00019064430319493282,
+      "worst_host_selectivity_density": null,
+      "worst_host_background_sites": 8,
+      "worst_host_bg_coverage": 0.00019280482750511253,
+      "per_host": {
+        "saureus": {
+          "length_bp": 2821361,
+          "sites": 0,
+          "sites_per_mb": 0.0,
+          "effective_site_load": null,
+          "coverage": 0.0,
+          "selectivity_density": null,
+          "unavailable": null,
+          "load_unavailable": "the per-host occupancy load is computed only under background_aggregate='worst-case', where a panel limit reads it. The pooled load for this panel is in effective_bg_sites",
+          "comparable": "selectivity_density"
+        },
+        "chr1": {
+          "length_bp": 248956422,
+          "sites": 8,
+          "sites_per_mb": 0.032134137917518756,
+          "effective_site_load": null,
+          "coverage": 0.00019280482750511253,
+          "selectivity_density": null,
+          "unavailable": null,
+          "load_unavailable": "the per-host occupancy load is computed only under background_aggregate='worst-case', where a panel limit reads it. The pooled load for this panel is in effective_bg_sites",
+          "comparable": "selectivity_density"
+        }
+      },
+      "background_aggregate_recorded": "sum",
+      "violations": [],
+      "blocking_violations": [],
+      "advisory_violations": [],
+      "qualified": true,
+      "panel_regime": {
+        "background_aggregate": "sum",
+        "limiting": "coverage",
+        "failing": [
+          "coverage",
+          "fg_bg_ratio"
+        ],
+        "unreferenced": [
+          "worst_hole",
+          "mean_gap",
+          "evenness",
+          "host_coverage",
+          "strand_balance",
+          "strand_alternation",
+          "host_gap_evenness",
+          "convergent_gap",
+          "host_convergent_gap",
+          "weakest_occupancy"
+        ],
+        "criteria": [
+          {
+            "name": "coverage",
+            "value": 0.2627934401133856,
+            "reference": 0.8,
+            "direction": "at_least",
+            "slack": -0.671508199858268,
+            "units": "fraction",
+            "note": "occupancy-weighted"
+          },
+          {
+            "name": "fg_bg_ratio",
+            "value": 2.469921133273449,
+            "reference": 5.0,
+            "direction": "at_least",
+            "slack": -0.5060157733453102,
+            "units": "ratio",
+            "note": "from the application profile"
+          },
+          {
+            "name": "panel_size",
+            "value": 24.0,
+            "reference": 24.0,
+            "direction": "at_least",
+            "slack": 0.0,
+            "units": "primers",
+            "note": "a request, not a guarantee: selection stops rather than admit a dimerising pair"
+          },
+          {
+            "name": "worst_hole",
+            "value": 110231.0,
+            "reference": null,
+            "direction": null,
+            "slack": null,
+            "units": "bp",
+            "note": "36.7x the 3000 bp reach, 2.50% of the target, no reference: no reach-derived threshold separates published winners"
+          },
+          {
+            "name": "mean_gap",
+            "value": 18154.45267489712,
+            "reference": null,
+            "direction": null,
+            "slack": null,
+            "units": "bp",
+            "note": "6.05x the 3000 bp reach, no reference"
+          },
+          {
+            "name": "evenness",
+            "value": 0.5281371902609655,
+            "reference": null,
+            "direction": null,
+            "slack": null,
+            "units": "Gini",
+            "note": "0 is uniform spacing, no reference: it separates winners on one benchmark and runs backwards on the other"
+          },
+          {
+            "name": "host_coverage",
+            "value": 0.00019064430319493282,
+            "reference": null,
+            "direction": null,
+            "slack": null,
+            "units": "fraction",
+            "note": "the only quantity here that sees host site position, no reference"
+          },
+          {
+            "name": "strand_balance",
+            "value": 0.975609756097561,
+            "reference": null,
+            "direction": null,
+            "slack": null,
+            "units": "ratio",
+            "note": "1 is balanced between strands, no reference"
+          },
+          {
+            "name": "strand_alternation",
+            "value": 0.384297520661157,
+            "reference": null,
+            "direction": null,
+            "slack": null,
+            "units": "fraction",
+            "note": "adjacent sites on opposite strands, no reference"
+          },
+          {
+            "name": "host_gap_evenness",
+            "value": 0.4495493574962235,
+            "reference": null,
+            "direction": null,
+            "slack": null,
+            "units": "Gini",
+            "note": "swga 2.0's `off_gap_gini`: distances between host sites, per strand, averaged over strands then hosts. HIGHER is better here, since clustered host sites leave most of the host out of reach. No reference: it carries the second-largest weight in the one set-level model fitted against sequencing breadth, over 46 sets, and that coefficient sits in a table nobody here could open"
+          },
+          {
+            "name": "convergent_gap",
+            "value": 110231.0,
+            "reference": null,
+            "direction": null,
+            "slack": null,
+            "units": "bp",
+            "note": "widest target stretch with no convergent pair, no reference"
+          },
+          {
+            "name": "host_convergent_gap",
+            "value": 23755804.0,
+            "reference": null,
+            "direction": null,
+            "slack": null,
+            "units": "bp",
+            "note": "widest host stretch with no convergent pair; LARGER is better here, since a host whose sites cannot face each other amplifies little. No reference"
+          },
+          {
+            "name": "weakest_occupancy",
+            "value": 0.9999687066968511,
+            "reference": null,
+            "direction": null,
+            "slack": null,
+            "units": "fraction",
+            "note": "median 1, strongest 1, spread 1.0x; no reference, since no validated floor on occupancy exists"
+          }
+        ]
+      },
+      "assessment_metrics": {
+        "bg_coverage": {
+          "value": 0.00019064430319493282,
+          "units": "fraction of host bases",
+          "basis": "reach 3000 bp; denominator is total host length",
+          "unavailable": null
+        },
+        "effective_fg_coverage": {
+          "value": 0.2627934401133856,
+          "units": "fraction of target bases",
+          "basis": "reach 3000 bp; occupancy-weighted, the quantity selection uses",
+          "unavailable": null
+        },
+        "fg_coverage": {
+          "value": 0.2627969149946096,
+          "units": "fraction of target bases",
+          "basis": "reach 3000 bp; denominator is total target length",
+          "unavailable": null
+        },
+        "gap_gini": {
+          "value": 0.5281371902609655,
+          "units": "dimensionless",
+          "basis": "evenness of target gaps",
+          "unavailable": null
+        },
+        "max_gap": {
+          "value": 110231.0,
+          "units": "bp",
+          "basis": "largest target hole",
+          "unavailable": null
+        },
+        "mean_gap": {
+          "value": 18154.45267489712,
+          "units": "bp",
+          "basis": "between adjacent target sites",
+          "unavailable": null
+        },
+        "mean_tm": {
+          "value": 53.615444163654615,
+          "units": "C",
+          "basis": "under the resolved reaction",
+          "unavailable": null
+        },
+        "selectivity_ratio": {
+          "value": 2.469921133273449,
+          "units": "dimensionless",
+          "basis": "effective foreground load over effective background load",
+          "unavailable": null
+        },
+        "total_bg_sites": {
+          "value": 8.0,
+          "units": "exact-match sites",
+          "basis": "exact matches only",
+          "unavailable": null
+        },
+        "total_fg_sites": {
+          "value": 243.0,
+          "units": "exact-match sites",
+          "basis": "exact matches only",
+          "unavailable": null
+        },
+        "worst_host_selectivity_density": {
+          "value": null,
+          "units": "dimensionless",
+          "basis": "lowest per-host density; null when any host went unmeasured",
+          "unavailable": "not computed for this panel"
+        }
+      },
+      "message": "Coverage: 29.0% (estimated, binned; fg_coverage is the measured value), Connectivity: 0.00"
+    },
+    {
+      "reading": "sum",
+      "size": 24,
+      "limits": {
+        "max_host_coverage": 0.000191
+      },
+      "label": "sum_limited",
+      "seconds": 122.2,
+      "returncode": 0,
+      "validation_report_present": true,
+      "validator_issues": [],
+      "primers": [
+        "CGACGATGTCGA",
+        "CGTTGCCGAACA",
+        "CCGTTGCCGTAC",
+        "CGATGCCGATCA",
+        "CCGATGCCGAAC",
+        "AACTCGCCGAAC",
+        "CGATGCCGAACA",
+        "GCGCCGATAACC",
+        "ACCGATGCCGAT",
+        "GCCCGATACCGA",
+        "GACGCCGTTGAC",
+        "AACTGCCGTTGC",
+        "CCGCCGATGAAC",
+        "CCGTTGCCGATA",
+        "CGCCGGATTGTC",
+        "GACGCCGATACC",
+        "AACACGCCGATG",
+        "AACTCGCCGATG",
+        "AACTGGCCGATG",
+        "GCCGCCGAATAC",
+        "CCGTAGCCGAAC",
+        "CGCCGAATTGAC",
+        "ATCTCGCCGAAC",
+        "AACTCGCCGTTG"
+      ],
+      "delivered": 24,
+      "fg_coverage": 0.2627969149946096,
+      "worst_target_coverage": 0.2627969149946096,
+      "selectivity_density": 140.964922643752,
+      "total_bg_sites": 8,
+      "bg_coverage": 0.00019064430319493282,
+      "worst_host_selectivity_density": null,
+      "worst_host_background_sites": 8,
+      "worst_host_bg_coverage": 0.00019280482750511253,
+      "per_host": {
+        "saureus": {
+          "length_bp": 2821361,
+          "sites": 0,
+          "sites_per_mb": 0.0,
+          "effective_site_load": null,
+          "coverage": 0.0,
+          "selectivity_density": null,
+          "unavailable": null,
+          "load_unavailable": "the per-host occupancy load is computed only under background_aggregate='worst-case', where a panel limit reads it. The pooled load for this panel is in effective_bg_sites",
+          "comparable": "selectivity_density"
+        },
+        "chr1": {
+          "length_bp": 248956422,
+          "sites": 8,
+          "sites_per_mb": 0.032134137917518756,
+          "effective_site_load": null,
+          "coverage": 0.00019280482750511253,
+          "selectivity_density": null,
+          "unavailable": null,
+          "load_unavailable": "the per-host occupancy load is computed only under background_aggregate='worst-case', where a panel limit reads it. The pooled load for this panel is in effective_bg_sites",
+          "comparable": "selectivity_density"
+        }
+      },
+      "background_aggregate_recorded": "sum",
+      "violations": [],
+      "blocking_violations": [],
+      "advisory_violations": [],
+      "qualified": true,
+      "panel_regime": {
+        "background_aggregate": "sum",
+        "limiting": "coverage",
+        "failing": [
+          "coverage",
+          "fg_bg_ratio"
+        ],
+        "unreferenced": [
+          "worst_hole",
+          "mean_gap",
+          "evenness",
+          "host_coverage",
+          "strand_balance",
+          "strand_alternation",
+          "host_gap_evenness",
+          "convergent_gap",
+          "host_convergent_gap",
+          "weakest_occupancy"
+        ],
+        "criteria": [
+          {
+            "name": "coverage",
+            "value": 0.2627934401133856,
+            "reference": 0.8,
+            "direction": "at_least",
+            "slack": -0.671508199858268,
+            "units": "fraction",
+            "note": "occupancy-weighted"
+          },
+          {
+            "name": "fg_bg_ratio",
+            "value": 2.469921133273449,
+            "reference": 5.0,
+            "direction": "at_least",
+            "slack": -0.5060157733453102,
+            "units": "ratio",
+            "note": "from the application profile"
+          },
+          {
+            "name": "panel_size",
+            "value": 24.0,
+            "reference": 24.0,
+            "direction": "at_least",
+            "slack": 0.0,
+            "units": "primers",
+            "note": "a request, not a guarantee: selection stops rather than admit a dimerising pair"
+          },
+          {
+            "name": "worst_hole",
+            "value": 110231.0,
+            "reference": null,
+            "direction": null,
+            "slack": null,
+            "units": "bp",
+            "note": "36.7x the 3000 bp reach, 2.50% of the target, no reference: no reach-derived threshold separates published winners"
+          },
+          {
+            "name": "mean_gap",
+            "value": 18154.45267489712,
+            "reference": null,
+            "direction": null,
+            "slack": null,
+            "units": "bp",
+            "note": "6.05x the 3000 bp reach, no reference"
+          },
+          {
+            "name": "evenness",
+            "value": 0.5281371902609655,
+            "reference": null,
+            "direction": null,
+            "slack": null,
+            "units": "Gini",
+            "note": "0 is uniform spacing, no reference: it separates winners on one benchmark and runs backwards on the other"
+          },
+          {
+            "name": "host_coverage",
+            "value": 0.00019064430319493282,
+            "reference": null,
+            "direction": null,
+            "slack": null,
+            "units": "fraction",
+            "note": "the only quantity here that sees host site position, no reference"
+          },
+          {
+            "name": "strand_balance",
+            "value": 0.975609756097561,
+            "reference": null,
+            "direction": null,
+            "slack": null,
+            "units": "ratio",
+            "note": "1 is balanced between strands, no reference"
+          },
+          {
+            "name": "strand_alternation",
+            "value": 0.384297520661157,
+            "reference": null,
+            "direction": null,
+            "slack": null,
+            "units": "fraction",
+            "note": "adjacent sites on opposite strands, no reference"
+          },
+          {
+            "name": "host_gap_evenness",
+            "value": 0.4495493574962235,
+            "reference": null,
+            "direction": null,
+            "slack": null,
+            "units": "Gini",
+            "note": "swga 2.0's `off_gap_gini`: distances between host sites, per strand, averaged over strands then hosts. HIGHER is better here, since clustered host sites leave most of the host out of reach. No reference: it carries the second-largest weight in the one set-level model fitted against sequencing breadth, over 46 sets, and that coefficient sits in a table nobody here could open"
+          },
+          {
+            "name": "convergent_gap",
+            "value": 110231.0,
+            "reference": null,
+            "direction": null,
+            "slack": null,
+            "units": "bp",
+            "note": "widest target stretch with no convergent pair, no reference"
+          },
+          {
+            "name": "host_convergent_gap",
+            "value": 23755804.0,
+            "reference": null,
+            "direction": null,
+            "slack": null,
+            "units": "bp",
+            "note": "widest host stretch with no convergent pair; LARGER is better here, since a host whose sites cannot face each other amplifies little. No reference"
+          },
+          {
+            "name": "weakest_occupancy",
+            "value": 0.9999687066968511,
+            "reference": null,
+            "direction": null,
+            "slack": null,
+            "units": "fraction",
+            "note": "median 1, strongest 1, spread 1.0x; no reference, since no validated floor on occupancy exists"
+          }
+        ]
+      },
+      "assessment_metrics": {
+        "bg_coverage": {
+          "value": 0.00019064430319493282,
+          "units": "fraction of host bases",
+          "basis": "reach 3000 bp; denominator is total host length",
+          "unavailable": null
+        },
+        "effective_fg_coverage": {
+          "value": 0.2627934401133856,
+          "units": "fraction of target bases",
+          "basis": "reach 3000 bp; occupancy-weighted, the quantity selection uses",
+          "unavailable": null
+        },
+        "fg_coverage": {
+          "value": 0.2627969149946096,
+          "units": "fraction of target bases",
+          "basis": "reach 3000 bp; denominator is total target length",
+          "unavailable": null
+        },
+        "gap_gini": {
+          "value": 0.5281371902609655,
+          "units": "dimensionless",
+          "basis": "evenness of target gaps",
+          "unavailable": null
+        },
+        "max_gap": {
+          "value": 110231.0,
+          "units": "bp",
+          "basis": "largest target hole",
+          "unavailable": null
+        },
+        "mean_gap": {
+          "value": 18154.45267489712,
+          "units": "bp",
+          "basis": "between adjacent target sites",
+          "unavailable": null
+        },
+        "mean_tm": {
+          "value": 53.615444163654615,
+          "units": "C",
+          "basis": "under the resolved reaction",
+          "unavailable": null
+        },
+        "selectivity_ratio": {
+          "value": 2.469921133273449,
+          "units": "dimensionless",
+          "basis": "effective foreground load over effective background load",
+          "unavailable": null
+        },
+        "total_bg_sites": {
+          "value": 8.0,
+          "units": "exact-match sites",
+          "basis": "exact matches only",
+          "unavailable": null
+        },
+        "total_fg_sites": {
+          "value": 243.0,
+          "units": "exact-match sites",
+          "basis": "exact matches only",
+          "unavailable": null
+        },
+        "worst_host_selectivity_density": {
+          "value": null,
+          "units": "dimensionless",
+          "basis": "lowest per-host density; null when any host went unmeasured",
+          "unavailable": "not computed for this panel"
+        }
+      },
+      "message": "Coverage: 29.0% (estimated, binned; fg_coverage is the measured value), Connectivity: 0.00"
+    },
+    {
+      "reading": "worst-case",
+      "size": 24,
+      "limits": {},
+      "label": "worst-case_unlimited",
+      "seconds": 102.9,
+      "returncode": 0,
+      "validation_report_present": true,
+      "validator_issues": [],
+      "primers": [
+        "CGACGATGTCGA",
+        "CGTTGCCGAACA",
+        "CCGTTGCCGTAC",
+        "CGATGCCGATCA",
+        "CCGATGCCGAAC",
+        "AACTCGCCGAAC",
+        "CGATGCCGAACA",
+        "GCGCCGATAACC",
+        "ACCGATGCCGAT",
+        "GCCCGATACCGA",
+        "GACGCCGTTGAC",
+        "AACTGCCGTTGC",
+        "CCGCCGATGAAC",
+        "CCGTTGCCGATA",
+        "CGCCGGATTGTC",
+        "GACGCCGATACC",
+        "AACACGCCGATG",
+        "AACTCGCCGATG",
+        "AACTGGCCGATG",
+        "GCCGCCGAATAC",
+        "CCGTAGCCGAAC",
+        "CGCCGAATTGAC",
+        "ATCTCGCCGAAC",
+        "AACTCGCCGTTG"
+      ],
+      "delivered": 24,
+      "fg_coverage": 0.2627969149946096,
+      "worst_target_coverage": 0.2627969149946096,
+      "selectivity_density": 140.964922643752,
+      "total_bg_sites": 8,
+      "bg_coverage": 0.00019064430319493282,
+      "worst_host_selectivity_density": 27.11363874327561,
+      "worst_host_background_sites": 8,
+      "worst_host_bg_coverage": 0.00019280482750511253,
+      "per_host": {
+        "saureus": {
+          "length_bp": 2821361,
+          "sites": 0,
+          "sites_per_mb": 0.0,
+          "effective_site_load": 90.99238707703198,
+          "coverage": 0.0,
+          "selectivity_density": 27.11363874327561,
+          "unavailable": null,
+          "load_unavailable": null,
+          "comparable": "selectivity_density"
+        },
+        "chr1": {
+          "length_bp": 248956422,
+          "sites": 8,
+          "sites_per_mb": 0.032134137917518756,
+          "effective_site_load": 1470.862039075721,
+          "coverage": 0.00019280482750511253,
+          "selectivity_density": 148.0081393552249,
+          "unavailable": null,
+          "load_unavailable": null,
+          "comparable": "selectivity_density"
+        }
+      },
+      "background_aggregate_recorded": "worst-case",
+      "violations": [],
+      "blocking_violations": [],
+      "advisory_violations": [],
+      "qualified": true,
+      "panel_regime": {
+        "background_aggregate": "worst-case",
+        "limiting": "coverage",
+        "failing": [
+          "coverage",
+          "fg_bg_ratio"
+        ],
+        "unreferenced": [
+          "worst_hole",
+          "mean_gap",
+          "evenness",
+          "host_coverage",
+          "strand_balance",
+          "strand_alternation",
+          "host_gap_evenness",
+          "convergent_gap",
+          "host_convergent_gap",
+          "weakest_occupancy"
+        ],
+        "criteria": [
+          {
+            "name": "coverage",
+            "value": 0.2627934401133856,
+            "reference": 0.8,
+            "direction": "at_least",
+            "slack": -0.671508199858268,
+            "units": "fraction",
+            "note": "occupancy-weighted"
+          },
+          {
+            "name": "fg_bg_ratio",
+            "value": 2.469921133273449,
+            "reference": 5.0,
+            "direction": "at_least",
+            "slack": -0.5060157733453102,
+            "units": "ratio",
+            "note": "from the application profile"
+          },
+          {
+            "name": "panel_size",
+            "value": 24.0,
+            "reference": 24.0,
+            "direction": "at_least",
+            "slack": 0.0,
+            "units": "primers",
+            "note": "a request, not a guarantee: selection stops rather than admit a dimerising pair"
+          },
+          {
+            "name": "worst_hole",
+            "value": 110231.0,
+            "reference": null,
+            "direction": null,
+            "slack": null,
+            "units": "bp",
+            "note": "36.7x the 3000 bp reach, 2.50% of the target, no reference: no reach-derived threshold separates published winners"
+          },
+          {
+            "name": "mean_gap",
+            "value": 18154.45267489712,
+            "reference": null,
+            "direction": null,
+            "slack": null,
+            "units": "bp",
+            "note": "6.05x the 3000 bp reach, no reference"
+          },
+          {
+            "name": "evenness",
+            "value": 0.5281371902609655,
+            "reference": null,
+            "direction": null,
+            "slack": null,
+            "units": "Gini",
+            "note": "0 is uniform spacing, no reference: it separates winners on one benchmark and runs backwards on the other"
+          },
+          {
+            "name": "host_coverage",
+            "value": 0.00019064430319493282,
+            "reference": null,
+            "direction": null,
+            "slack": null,
+            "units": "fraction",
+            "note": "the only quantity here that sees host site position, no reference"
+          },
+          {
+            "name": "strand_balance",
+            "value": 0.975609756097561,
+            "reference": null,
+            "direction": null,
+            "slack": null,
+            "units": "ratio",
+            "note": "1 is balanced between strands, no reference"
+          },
+          {
+            "name": "strand_alternation",
+            "value": 0.384297520661157,
+            "reference": null,
+            "direction": null,
+            "slack": null,
+            "units": "fraction",
+            "note": "adjacent sites on opposite strands, no reference"
+          },
+          {
+            "name": "host_gap_evenness",
+            "value": 0.4495493574962235,
+            "reference": null,
+            "direction": null,
+            "slack": null,
+            "units": "Gini",
+            "note": "swga 2.0's `off_gap_gini`: distances between host sites, per strand, averaged over strands then hosts. HIGHER is better here, since clustered host sites leave most of the host out of reach. No reference: it carries the second-largest weight in the one set-level model fitted against sequencing breadth, over 46 sets, and that coefficient sits in a table nobody here could open"
+          },
+          {
+            "name": "convergent_gap",
+            "value": 110231.0,
+            "reference": null,
+            "direction": null,
+            "slack": null,
+            "units": "bp",
+            "note": "widest target stretch with no convergent pair, no reference"
+          },
+          {
+            "name": "host_convergent_gap",
+            "value": 23755804.0,
+            "reference": null,
+            "direction": null,
+            "slack": null,
+            "units": "bp",
+            "note": "widest host stretch with no convergent pair; LARGER is better here, since a host whose sites cannot face each other amplifies little. No reference"
+          },
+          {
+            "name": "weakest_occupancy",
+            "value": 0.9999687066968511,
+            "reference": null,
+            "direction": null,
+            "slack": null,
+            "units": "fraction",
+            "note": "median 1, strongest 1, spread 1.0x; no reference, since no validated floor on occupancy exists"
+          }
+        ]
+      },
+      "assessment_metrics": {
+        "bg_coverage": {
+          "value": 0.00019064430319493282,
+          "units": "fraction of host bases",
+          "basis": "reach 3000 bp; denominator is total host length",
+          "unavailable": null
+        },
+        "effective_fg_coverage": {
+          "value": 0.2627934401133856,
+          "units": "fraction of target bases",
+          "basis": "reach 3000 bp; occupancy-weighted, the quantity selection uses",
+          "unavailable": null
+        },
+        "fg_coverage": {
+          "value": 0.2627969149946096,
+          "units": "fraction of target bases",
+          "basis": "reach 3000 bp; denominator is total target length",
+          "unavailable": null
+        },
+        "gap_gini": {
+          "value": 0.5281371902609655,
+          "units": "dimensionless",
+          "basis": "evenness of target gaps",
+          "unavailable": null
+        },
+        "max_gap": {
+          "value": 110231.0,
+          "units": "bp",
+          "basis": "largest target hole",
+          "unavailable": null
+        },
+        "mean_gap": {
+          "value": 18154.45267489712,
+          "units": "bp",
+          "basis": "between adjacent target sites",
+          "unavailable": null
+        },
+        "mean_tm": {
+          "value": 53.615444163654615,
+          "units": "C",
+          "basis": "under the resolved reaction",
+          "unavailable": null
+        },
+        "selectivity_ratio": {
+          "value": 2.469921133273449,
+          "units": "dimensionless",
+          "basis": "effective foreground load over effective background load",
+          "unavailable": null
+        },
+        "total_bg_sites": {
+          "value": 8.0,
+          "units": "exact-match sites",
+          "basis": "exact matches only",
+          "unavailable": null
+        },
+        "total_fg_sites": {
+          "value": 243.0,
+          "units": "exact-match sites",
+          "basis": "exact matches only",
+          "unavailable": null
+        },
+        "worst_host_selectivity_density": {
+          "value": 27.11363874327561,
+          "units": "dimensionless",
+          "basis": "lowest per-host density; null when any host went unmeasured",
+          "unavailable": null
+        }
+      },
+      "message": "Coverage: 29.0% (estimated, binned; fg_coverage is the measured value), Connectivity: 0.00"
+    },
+    {
+      "reading": "worst-case",
+      "size": 24,
+      "limits": {
+        "max_host_coverage": 0.000191
+      },
+      "label": "worst-case_limited",
+      "seconds": 153.6,
+      "returncode": 0,
+      "validation_report_present": true,
+      "validator_issues": [],
+      "primers": [
+        "CGACGATGTCGA",
+        "CGTTGCCGAACA",
+        "CCGTTGCCGTAC",
+        "CGATGCCGATCA",
+        "CCGATGCCGAAC",
+        "ACACCGAACTCG",
+        "AACTCGCCGAAC",
+        "CGATGCCGAACA",
+        "GCGCCGATAACC",
+        "ACCGATGCCGAT",
+        "GCCCGATACCGA",
+        "GACGCCGTTGAC",
+        "ACCGAACCGGAT",
+        "AACTGCCGTTGC",
+        "ACCGCCGAAAAC",
+        "CCGCCGATGAAC",
+        "ACACCGAACACC",
+        "ACACGCCGATAC",
+        "CCGTTGCCGATA",
+        "GACGCCGATACC",
+        "AACACGCCGATG",
+        "AACTCGCCGATG",
+        "AACTGGCCGATG",
+        "ACCGCCGAAATC"
+      ],
+      "delivered": 24,
+      "fg_coverage": 0.2804683271026936,
+      "worst_target_coverage": 0.2804683271026936,
+      "selectivity_density": 103.2272461912151,
+      "total_bg_sites": 4,
+      "bg_coverage": 9.532215159746641e-05,
+      "worst_host_selectivity_density": 20.9964274212106,
+      "worst_host_background_sites": 4,
+      "worst_host_bg_coverage": 9.640241375255627e-05,
+      "per_host": {
+        "saureus": {
+          "length_bp": 2821361,
+          "sites": 0,
+          "sites_per_mb": 0.0,
+          "effective_site_load": 111.98939129415801,
+          "coverage": 0.0,
+          "selectivity_density": 20.9964274212106,
+          "unavailable": null,
+          "load_unavailable": null,
+          "comparable": "selectivity_density"
+        },
+        "chr1": {
+          "length_bp": 248956422,
+          "sites": 4,
+          "sites_per_mb": 0.016067068958759378,
+          "effective_site_load": 1920.7733586758031,
+          "coverage": 9.640241375255627e-05,
+          "selectivity_density": 108.0216584512965,
+          "unavailable": null,
+          "load_unavailable": null,
+          "comparable": "selectivity_density"
+        }
+      },
+      "background_aggregate_recorded": "worst-case",
+      "violations": [],
+      "blocking_violations": [],
+      "advisory_violations": [],
+      "qualified": true,
+      "panel_regime": {
+        "background_aggregate": "worst-case",
+        "limiting": "coverage",
+        "failing": [
+          "coverage",
+          "fg_bg_ratio"
+        ],
+        "unreferenced": [
+          "worst_hole",
+          "mean_gap",
+          "evenness",
+          "host_coverage",
+          "strand_balance",
+          "strand_alternation",
+          "host_gap_evenness",
+          "convergent_gap",
+          "host_convergent_gap",
+          "weakest_occupancy"
+        ],
+        "criteria": [
+          {
+            "name": "coverage",
+            "value": 0.28046420033431035,
+            "reference": 0.8,
+            "direction": "at_least",
+            "slack": -0.6494197495821121,
+            "units": "fraction",
+            "note": "occupancy-weighted"
+          },
+          {
+            "name": "fg_bg_ratio",
+            "value": 1.8086992999077427,
+            "reference": 5.0,
+            "direction": "at_least",
+            "slack": -0.6382601400184514,
+            "units": "ratio",
+            "note": "from the application profile"
+          },
+          {
+            "name": "panel_size",
+            "value": 24.0,
+            "reference": 24.0,
+            "direction": "at_least",
+            "slack": 0.0,
+            "units": "primers",
+            "note": "a request, not a guarantee: selection stops rather than admit a dimerising pair"
+          },
+          {
+            "name": "worst_hole",
+            "value": 110231.0,
+            "reference": null,
+            "direction": null,
+            "slack": null,
+            "units": "bp",
+            "note": "36.7x the 3000 bp reach, 2.50% of the target, no reference: no reach-derived threshold separates published winners"
+          },
+          {
+            "name": "mean_gap",
+            "value": 17165.494163424126,
+            "reference": null,
+            "direction": null,
+            "slack": null,
+            "units": "bp",
+            "note": "5.72x the 3000 bp reach, no reference"
+          },
+          {
+            "name": "evenness",
+            "value": 0.5219566541714471,
+            "reference": null,
+            "direction": null,
+            "slack": null,
+            "units": "Gini",
+            "note": "0 is uniform spacing, no reference: it separates winners on one benchmark and runs backwards on the other"
+          },
+          {
+            "name": "host_coverage",
+            "value": 9.532215159746641e-05,
+            "reference": null,
+            "direction": null,
+            "slack": null,
+            "units": "fraction",
+            "note": "the only quantity here that sees host site position, no reference"
+          },
+          {
+            "name": "strand_balance",
+            "value": 0.8357142857142857,
+            "reference": null,
+            "direction": null,
+            "slack": null,
+            "units": "ratio",
+            "note": "1 is balanced between strands, no reference"
+          },
+          {
+            "name": "strand_alternation",
+            "value": 0.3828125,
+            "reference": null,
+            "direction": null,
+            "slack": null,
+            "units": "fraction",
+            "note": "adjacent sites on opposite strands, no reference"
+          },
+          {
+            "name": "host_gap_evenness",
+            "value": 0.0,
+            "reference": null,
+            "direction": null,
+            "slack": null,
+            "units": "Gini",
+            "note": "swga 2.0's `off_gap_gini`: distances between host sites, per strand, averaged over strands then hosts. HIGHER is better here, since clustered host sites leave most of the host out of reach. No reference: it carries the second-largest weight in the one set-level model fitted against sequencing breadth, over 46 sets, and that coefficient sits in a table nobody here could open"
+          },
+          {
+            "name": "convergent_gap",
+            "value": 110231.0,
+            "reference": null,
+            "direction": null,
+            "slack": null,
+            "units": "bp",
+            "note": "widest target stretch with no convergent pair, no reference"
+          },
+          {
+            "name": "host_convergent_gap",
+            "value": 10173131.0,
+            "reference": null,
+            "direction": null,
+            "slack": null,
+            "units": "bp",
+            "note": "widest host stretch with no convergent pair; LARGER is better here, since a host whose sites cannot face each other amplifies little. No reference"
+          },
+          {
+            "name": "weakest_occupancy",
+            "value": 0.9999674125636302,
+            "reference": null,
+            "direction": null,
+            "slack": null,
+            "units": "fraction",
+            "note": "median 1, strongest 1, spread 1.0x; no reference, since no validated floor on occupancy exists"
+          }
+        ]
+      },
+      "assessment_metrics": {
+        "bg_coverage": {
+          "value": 9.532215159746641e-05,
+          "units": "fraction of host bases",
+          "basis": "reach 3000 bp; denominator is total host length",
+          "unavailable": null
+        },
+        "effective_fg_coverage": {
+          "value": 0.28046420033431035,
+          "units": "fraction of target bases",
+          "basis": "reach 3000 bp; occupancy-weighted, the quantity selection uses",
+          "unavailable": null
+        },
+        "fg_coverage": {
+          "value": 0.2804683271026936,
+          "units": "fraction of target bases",
+          "basis": "reach 3000 bp; denominator is total target length",
+          "unavailable": null
+        },
+        "gap_gini": {
+          "value": 0.5219566541714471,
+          "units": "dimensionless",
+          "basis": "evenness of target gaps",
+          "unavailable": null
+        },
+        "max_gap": {
+          "value": 110231.0,
+          "units": "bp",
+          "basis": "largest target hole",
+          "unavailable": null
+        },
+        "mean_gap": {
+          "value": 17165.494163424126,
+          "units": "bp",
+          "basis": "between adjacent target sites",
+          "unavailable": null
+        },
+        "mean_tm": {
+          "value": 53.511493103861774,
+          "units": "C",
+          "basis": "under the resolved reaction",
+          "unavailable": null
+        },
+        "selectivity_ratio": {
+          "value": 1.8086992999077427,
+          "units": "dimensionless",
+          "basis": "effective foreground load over effective background load",
+          "unavailable": null
+        },
+        "total_bg_sites": {
+          "value": 4.0,
+          "units": "exact-match sites",
+          "basis": "exact matches only",
+          "unavailable": null
+        },
+        "total_fg_sites": {
+          "value": 257.0,
+          "units": "exact-match sites",
+          "basis": "exact matches only",
+          "unavailable": null
+        },
+        "worst_host_selectivity_density": {
+          "value": 20.9964274212106,
+          "units": "dimensionless",
+          "basis": "lowest per-host density; null when any host went unmeasured",
+          "unavailable": null
+        }
+      },
+      "message": "Coverage: 31.1% (estimated, binned; fg_coverage is the measured value), Connectivity: 0.00"
+    }
+  ]
+}

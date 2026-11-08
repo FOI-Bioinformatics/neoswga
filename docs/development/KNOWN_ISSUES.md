@@ -119,7 +119,28 @@ position and are left there.
    reachable and deliberately NOT the default, because no measurement yet says which reading
    is right for a panel of several hosts. Both are reported either way --
    `selectivity_density` stays pooled under both readings, `per_host` carries each host's own
-   figure, and `worst_host_selectivity_density` is the reduction. `core/per_host_metrics.py`
+   figure, and `worst_host_selectivity_density` is the reduction. One qualifier on "either
+   way": under `sum` a per-host row carries its measured sites, sites per Mb and coverage but
+   NOT the occupancy-weighted load or the density derived from it, because only `worst-case`
+   reads them; the row says so in `load_unavailable`, and `per_host_metrics` keeps three
+   states apart -- measured, not measurable, and measured with one figure withheld.
+
+   **Measured with a limit set, 2026-11-08.** The two readings differ only in how the three
+   background-measured limits are read, so an unlimited comparison cannot separate them.
+   On *M. tuberculosis* against *S. aureus* (2.82 Mb) and human chr1 (249 Mb) -- 88x apart,
+   pooled denominator 98.9% chr1 -- the pooled density is 141 to 352 while the worst-host
+   density is 27 to 35, a TENFOLD gap. A `min_selectivity_density` of 100 is therefore
+   delivered and qualified under `sum` at every panel size and REFUSED under `worst-case` at
+   every size, with the `panel_limit_not_met` issue that reaches `export`; the bounded repair
+   runs (3-5x the runtime) and cannot resolve it. A `max_host_coverage` straddling the 1.1%
+   gap between the pooled and worst-host figures makes the repair deliver a DIFFERENT panel
+   at 24 primers (Jaccard 0.600, half the host coverage, 0.018 more target coverage) -- the
+   first measured instance of this key changing what a design delivers. Two cautions from the
+   same run: the worst host was the one holding ZERO exact sites, bound only through the
+   occupancy model in the saturated 30 C regime of Known Issue 17; and repairing one
+   reduction worsened another, host coverage down and worst-host density 27.11 to 21.00, so
+   the three limits do not move together.
+   `docs/validation/2026-11-08-limits-under-worst-case.md`. `core/per_host_metrics.py`
    is where that lives, and no per-host output carries a count RATIO: per-host comparisons use
    density, which is the whole subject of this issue.
 
