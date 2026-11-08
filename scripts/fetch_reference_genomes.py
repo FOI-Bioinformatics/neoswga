@@ -211,6 +211,38 @@ REFERENCES: Dict[str, Reference] = {
     # recorded checksum. Anything written against the UCSC file (for instance
     # `scripts/benchmarking/mismatch_model_ranking.py`) keeps asking for
     # `human_chr21.fna` and is not silently handed this one.
+    "mtb_igenomes": Reference(
+        key="mtb_igenomes",
+        description=(
+            "M. tuberculosis H37Rv, 4,411,532 bp, GC 65.6% (target, Clarke 2017); "
+            "the Ensembl H37Rv.EB1 assembly as served by iGenomes, a SEPARATE key "
+            "from `mtb` because that entry fetches NCBI's GCF_000195955.2"
+        ),
+        url=(
+            "https://ngi-igenomes.s3.amazonaws.com/igenomes/"
+            "Mycobacterium_tuberculosis_H37RV/Ensembl/H37Rv.EB1/Sequence/"
+            "WholeGenomeFasta/genome.fa"
+        ),
+        filename="mtb_igenomes.fna",
+        approx_mb=5,
+        sha256="4d4e3f479cc1796de041c9efae898ada795dc0e3b209738bf1c76f85c95f1d9f",
+        compressed=False,
+    ),
+    "saureus": Reference(
+        key="saureus",
+        description=(
+            "S. aureus NCTC 8325, 2,821,361 bp, GC 32.9% (small host, host panel)"
+        ),
+        url=(
+            "https://ngi-igenomes.s3.amazonaws.com/igenomes/"
+            "Staphylococcus_aureus_NCTC_8325/NCBI/2006-02-13/Sequence/"
+            "WholeGenomeFasta/genome.fa"
+        ),
+        filename="saureus.fna",
+        approx_mb=3,
+        sha256="f7750aa5049aebdf4bacc677331007c0b3c49687a3c728f3d93ae8d1c5d7e5f2",
+        compressed=False,
+    ),
     "human_chr21_igenomes": Reference(
         key="human_chr21_igenomes",
         description="Human chr21, hg38, via AWS iGenomes (see the note above)",
