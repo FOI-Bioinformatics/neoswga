@@ -239,6 +239,11 @@ measurements: implementation-notes.md.
   selection" to "reaching it does not demonstrably help".
   `docs/validation/2026-11-02-what-host-coverage-would-cost-the-search.md`,
   `docs/validation/2026-11-02-a-weighted-host-axis-measured.md`).
+- **Several hosts**: `background_aggregate` (`sum` default, every host pooled as
+  today; `worst-case` judges each host on its own length). params.json only, no
+  flag. The step-2 gate reads it (`core/background_gate.py`), where an absent
+  per-host count blocks under `worst-case`; step 4 does not yet.
+  `core/background_aggregate.py` is the one place it resolves.
 - **Panel limits**, all unset by default and params.json only:
   `min_selectivity_density`, `max_background_sites`, `max_worst_hole`,
   `max_mean_gap`, `max_evenness`, `max_host_coverage`. Set none and the

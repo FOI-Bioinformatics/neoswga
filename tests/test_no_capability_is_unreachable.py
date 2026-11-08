@@ -74,6 +74,17 @@ WATCHED = (
     # -- so nothing about a default run would notice it becoming orphaned.
     "core/mismatch_sites.py",
     "core/mismatch_model.py",
+    # Added 2026-10-02 (Phase 7a). The one place `background_aggregate` is
+    # defined and resolved, reachable only through a params.json key that is
+    # off by default -- so nothing about a default run would notice it becoming
+    # orphaned, which is the shape that hid the six findings this file was
+    # written for.
+    "core/background_aggregate.py",
+    # Added 2026-10-02 (Phase 7b). The step-2 background gate's arithmetic,
+    # reached from `filter.get_all_rates`. Most of its surface is only taken
+    # under `worst-case`, which is off by default, so a default run would not
+    # notice any of it becoming orphaned.
+    "core/background_gate.py",
     # Added 2026-10-02 with the enforced per-target floor. Two of its four
     # public names are not extractions: `require_per_target` is reached from
     # exactly one call site in `unified_optimizer` and `saturation_issues` from

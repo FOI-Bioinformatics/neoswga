@@ -13,6 +13,11 @@ import pandas as pd
 from neoswga.core import filter as filter_module
 from neoswga.core import kmer_tables, parameter, rf_preprocessing, string_search, utility
 from neoswga.core.filter import check_gini_stage_kept_something
+
+# Extracted 2026-10-02 when recording `background_aggregate` beside
+# `occupancy_ranking_mode` put this module against its size ceiling.
+# Re-exported under the name it had here, which is what reads it.
+from neoswga.core.filter_stats import write_filter_stats as _write_filter_stats
 from neoswga.core.kmer_counter import get_primer_list_from_kmers, run_jellyfish
 from neoswga.core.pool_diagnostics import report_pool_diagnostics
 from neoswga.core.progress import progress_context
@@ -1011,34 +1016,6 @@ def _occupancy_ranking_inputs():
         return None, None
 
 
-def _write_filter_stats(funnel, final_candidates):
-    """Write `filter_stats.json`: the real per-stage funnel, and what ordered it.
-
-    Extracted from `step2` when adding `occupancy_ranking_mode` took that
-    function over its 200-line budget. Reports showed a fabricated per-stage
-    estimate before this file existed, which is why it is written at all.
-
-    `occupancy_ranking_mode` names the mismatch model that ordered the
-    candidates. The ranking's own output is the `occupancy_ratio` column of
-    step2_df.csv, so without it the pool's ORDER came out of an extrapolated
-    table with nothing saying so. It is "occupancy" under the shipped uniform
-    model, so no existing figure in this file moves.
-
-    Best-effort: a diagnostic must never fail the step that produced it.
-    """
-    try:
-        import json as _json
-
-        from .mismatch_model import resolve_mismatch_model, site_load_mode
-
-        funnel["final_candidates"] = final_candidates
-        funnel["occupancy_ranking_mode"] = site_load_mode(resolve_mismatch_model())
-        with open(os.path.join(parameter.data_dir, "filter_stats.json"), "w") as handle:
-            _json.dump(funnel, handle, indent=2)
-    except Exception as exc:  # pragma: no cover - defensive
-        logger.debug(f"Could not write filter_stats.json: {exc}")
-
-
 def _occupancy_ratio_column(primers, fg_prefixes, bg_prefixes, conditions):
     """Per-primer occupancy-weighted bg/fg load, ascending-is-better.
 
@@ -1251,6 +1228,11 @@ def step2(all_primers=None, validate_prerequisites=True):
         "bg_total_length": sum(bg_seq_lengths),
         "fg_genomes": list(fg_genomes or []),
         "bg_genomes": list(bg_genomes or []),
+        # Each host's OWN length, beside the summed one. `worst-case` divides a
+        # host's count by this and refuses without it; `sum` ignores it and
+        # keeps using `bg_total_length`. Passed rather than looked up inside
+        # the gate so a prefix and its length travel together on the call.
+        "bg_seq_lengths": list(bg_seq_lengths or []),
     }
     if all_primers is None:
         # Use stored min_k and max_k values from parameter module (with safe defaults)
@@ -1288,6 +1270,13 @@ def step2(all_primers=None, validate_prerequisites=True):
         "after_fg_frequency": int(rate_df["fg_bool"].sum()),
         "after_bg_frequency": int((rate_df["fg_bool"] & rate_df["bg_bool"]).sum()),
     }
+    # Which reading of "the background" decided the count above. Read off the
+    # frame the gate returned rather than resolved again here: a second lookup
+    # could disagree with what was applied, which is the shape the per-step
+    # `effective_conditions` record exists to catch. Not a stage count, so it
+    # goes to `_write_filter_stats` beside `occupancy_ranking_mode` and never
+    # into the funnel.
+    _applied_aggregate = rate_df.attrs.get("background_aggregate")
     filtered_rate_df = rate_df[(rate_df["fg_bool"]) & (rate_df["bg_bool"])]
     filtered_rate_df = filtered_rate_df.drop(["fg_bool", "bg_bool"], axis=1)
     logger.info(
@@ -1361,7 +1350,7 @@ def step2(all_primers=None, validate_prerequisites=True):
 
     report_pool_diagnostics(list(filtered_gini_df["primer"].astype(str)), parameter)
 
-    _write_filter_stats(_funnel, len(filtered_gini_df))
+    _write_filter_stats(_funnel, len(filtered_gini_df), background_aggregate=_applied_aggregate)
 
     if len(filtered_gini_df) == 0:
         logger.error(

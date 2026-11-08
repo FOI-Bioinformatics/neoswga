@@ -800,6 +800,7 @@ def _effective_conditions(parameter):
     resolved state is what lets `export` and `report` correct a Tm for the
     buffer the design was optimized under instead of a different one.
     """
+    from neoswga.core.background_aggregate import resolve_background_aggregate
     from neoswga.core.mismatch_model import resolve_mismatch_model
     from neoswga.core.parameter import REACTION_PARAM_DEFAULTS
 
@@ -818,6 +819,14 @@ def _effective_conditions(parameter):
     # `warn_on_condition_drift` is for, and nothing said so before.
     conditions["mismatch_model"] = resolve_mismatch_model(
         getattr(parameter, "mismatch_model", None)
+    )
+
+    # Recorded for the same two reasons: it decides what the background IS, so
+    # it is part of what the step ran under, and `filter` under one reading with
+    # `optimize` under another is drift worth naming. The RESOLVED value, never
+    # None, so a manifest always says which reading produced its numbers.
+    conditions["background_aggregate"] = resolve_background_aggregate(
+        getattr(parameter, "background_aggregate", None)
     )
     return conditions or None
 

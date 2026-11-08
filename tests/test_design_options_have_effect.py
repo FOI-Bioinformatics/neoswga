@@ -793,3 +793,132 @@ def test_the_mismatch_model_changes_the_load_and_says_which_model_ran(mismatch_w
     # Exact-match counts are not a model output and must not move.
     assert modelled.total_bg_sites == uniform.total_bg_sites
     assert modelled.total_fg_sites == uniform.total_fg_sites
+
+
+# ----------------------------------------------------------------------
+# background_aggregate: acting in step 2, not yet in step 4
+# ----------------------------------------------------------------------
+#
+# Added 2026-10-02 (Phase 7a), split 2026-10-02 (Phase 7b). params.json only;
+# there is no flag. The key says whether several hosts are pooled (`sum`) or
+# judged one at a time on their own lengths (`worst-case`).
+#
+# The two halves are now at different stages, so they are asserted apart.
+#
+# - **Step 2 reads it.** `test_background_aggregate_changes_the_step2_gate`
+#   below is the usual assertion: changing the option changes the output. The
+#   full behaviour, including the funnel and the per-host columns, is in
+#   `tests/test_the_background_gate_reads_the_aggregate.py`.
+# - **Step 4 does not, yet.** `compute_metrics` still returns the pooled
+#   figures under both values, and
+#   `test_background_aggregate_moves_no_step4_figure_before_7c` says so number
+#   by number on a design whose two hosts differ in size by a factor of 43.
+#   That is the claim a dispatch added in the wrong place would break
+#   silently, and it is replaced -- not deleted -- when Phase 7c lands the
+#   per-host figures.
+
+
+@pytest.fixture(scope="module")
+def two_host_world(tmp_path_factory):
+    """One target and two hosts whose lengths differ by a factor of 43.
+
+    The small host carries every primer and the large one carries none, which
+    is the configuration a pooled background hides: the small host is 2.3
+    percent of the pooled length, so its sites are diluted away.
+    """
+    k = PRIMER_LENGTH
+    rng = random.Random(7001)
+    directory = tmp_path_factory.mktemp("two_host_world")
+    lengths = {"fg": 40_000, "small": 40_000, "large": 1_720_000}
+
+    primers = sorted({"".join(rng.choice("ACGT") for _ in range(k)) for _ in range(8)})
+
+    prefixes = {}
+    for name, length in lengths.items():
+        prefix = str(directory / name)
+        prefixes[name] = prefix
+        step = length // 8
+        with h5py.File(f"{prefix}_{k}mer_positions.h5", "w") as handle:
+            for primer in primers:
+                hits = [] if name == "large" else [i * step + 11 for i in range(8)]
+                handle.create_dataset(primer, data=np.array(hits, dtype=np.int64))
+                handle.create_dataset(
+                    reverse_complement(primer), data=np.array([], dtype=np.int64)
+                )
+
+    return {"primers": primers, "lengths": lengths, **prefixes}
+
+
+def _two_host_metrics(two_host_world, monkeypatch, aggregate):
+    from neoswga.core import parameter
+    from neoswga.core.base_optimizer import OptimizerConfig
+    from neoswga.core.dominating_set_adapter import DominatingSetAdapter
+    from neoswga.core.position_cache import PositionCache
+    from neoswga.core.reaction_conditions import ReactionConditions
+
+    monkeypatch.setattr(parameter, "background_aggregate", aggregate, raising=False)
+    lengths = two_host_world["lengths"]
+    bg = [two_host_world["small"], two_host_world["large"]]
+    optimizer = DominatingSetAdapter(
+        position_cache=PositionCache([two_host_world["fg"], *bg], two_host_world["primers"]),
+        fg_prefixes=[two_host_world["fg"]],
+        fg_seq_lengths=[lengths["fg"]],
+        bg_prefixes=bg,
+        bg_seq_lengths=[lengths["small"], lengths["large"]],
+        config=OptimizerConfig(target_set_size=4),
+        conditions=ReactionConditions(temp=30.0, polymerase="phi29"),
+    )
+    return optimizer.compute_metrics(two_host_world["primers"])
+
+
+def test_background_aggregate_changes_the_step2_gate(two_host_world, monkeypatch):
+    """The usual assertion, on the stage that reads the key as of Phase 7b.
+
+    The world here is the step-4 one, so the gate is exercised directly on its
+    two host lengths rather than through a `filter` run: a primer with one site
+    on the 40 kb host and none on the 1.72 Mb host is 5.7e-7 pooled, under a
+    5e-6 ceiling, and 2.5e-5 on the small host's own length, over it.
+    `tests/test_the_background_gate_reads_the_aggregate.py` runs the whole step
+    on a world built for it.
+    """
+    from neoswga.core import background_gate
+
+    lengths = two_host_world["lengths"]
+    primer = two_host_world["primers"][0]
+    panel = background_gate.host_panel(
+        [two_host_world["small"], two_host_world["large"]],
+        [lengths["small"], lengths["large"]],
+        "worst-case",
+    )
+    counts = {two_host_world["small"]: {primer: 1}, two_host_world["large"]: {primer: 0}}
+    pooled_length = lengths["small"] + lengths["large"]
+
+    assert background_gate.pooled_verdict(1, pooled_length, 5e-6) is True
+    assert background_gate.worst_case_verdict(counts, primer, panel, 5e-6) is False
+
+
+@pytest.mark.parametrize("aggregate", [None, "sum", "worst-case"])
+def test_background_aggregate_moves_no_step4_figure_before_7c(
+    two_host_world, monkeypatch, aggregate
+):
+    """Every value gives the pooled step-4 figures, because `compute_metrics`
+    does not read the key yet; Phase 7c is what wires it.
+
+    Compared number by number against the key absent rather than read from the
+    code: "step 4 has not changed" is exactly the claim a half-wired dispatch
+    breaks silently.
+    """
+    pooled = _two_host_metrics(two_host_world, monkeypatch, None)
+    measured = _two_host_metrics(two_host_world, monkeypatch, aggregate)
+
+    for field in (
+        "effective_fg_sites",
+        "effective_bg_sites",
+        "selectivity_ratio",
+        "selectivity_density",
+        "selectivity_mode",
+        "fg_coverage",
+        "total_fg_sites",
+        "total_bg_sites",
+    ):
+        assert getattr(measured, field) == getattr(pooled, field), field

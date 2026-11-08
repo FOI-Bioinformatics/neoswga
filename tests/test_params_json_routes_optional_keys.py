@@ -222,6 +222,79 @@ class TestMismatchModel:
         assert {"mismatch_penalty", "mismatch_model"} <= assigned
 
 
+class TestBackgroundAggregate:
+    """What "the background" is when several hosts are listed. Phase 7a and 7b.
+
+    params.json is the only route, as for the key above and for the same
+    reason: `worst-case` is unmeasured as a default, and the key is the
+    documented way in. No flag was added on `filter` when Phase 7b wired the
+    gate there, deliberately, so there is no precedence between a flag and the
+    file to preserve.
+    """
+
+    def test_the_value_in_params_json_reaches_the_parameter_module(self, tmp_path, monkeypatch):
+        _load_params(tmp_path, monkeypatch, background_aggregate="worst-case")
+
+        assert getattr(parameter, "background_aggregate", None) == "worst-case"
+
+    def test_it_reaches_the_resolver_every_consumer_asks(self, tmp_path, monkeypatch):
+        from neoswga.core.background_aggregate import WORST_CASE, resolve_background_aggregate
+
+        _load_params(tmp_path, monkeypatch, background_aggregate="worst-case")
+
+        assert resolve_background_aggregate() == WORST_CASE
+
+    def test_absent_leaves_the_pooled_background(self, tmp_path, monkeypatch):
+        """Loaded after a run that set it, so a leaked global would show."""
+        from neoswga.core.background_aggregate import SUM, resolve_background_aggregate
+
+        _load_params(tmp_path, monkeypatch, background_aggregate="worst-case")
+        _load_params(tmp_path, monkeypatch)
+
+        assert getattr(parameter, "background_aggregate", None) is None
+        assert resolve_background_aggregate() == SUM
+
+    def test_declared_in_the_schema_with_the_values_the_code_accepts(self):
+        from neoswga.core.background_aggregate import BACKGROUND_AGGREGATES
+
+        declared = _schema()["properties"]["background_aggregate"]
+
+        assert tuple(declared["enum"]) == BACKGROUND_AGGREGATES
+        assert declared["default"] == "sum"
+
+    def test_the_value_from_params_json_reaches_the_step2_gate(self, tmp_path, monkeypatch):
+        """The route that matters as of Phase 7b: `filter.get_all_rates` with
+        no explicit argument takes the value the file set."""
+        from neoswga.core import filter as filter_module
+        from neoswga.core.background_aggregate import WORST_CASE
+
+        _load_params(tmp_path, monkeypatch, background_aggregate="worst-case")
+        monkeypatch.setattr(parameter, "use_bloom_filter", False, raising=False)
+        monkeypatch.setattr(parameter, "bloom_filter_path", None, raising=False)
+        monkeypatch.setattr(parameter, "min_fg_freq", 1e-9, raising=False)
+        monkeypatch.setattr(parameter, "max_bg_freq", 5e-6, raising=False)
+        monkeypatch.setattr(
+            filter_module,
+            "_get_rate_for_one_file",
+            lambda task: {primer: 1 for primer in task[0]},
+        )
+
+        frame = filter_module.get_all_rates(
+            ["AAAACCCCGG"],
+            fg_prefixes=["fg"],
+            bg_prefixes=["small", "large"],
+            fg_total_length=100_000,
+            bg_total_length=2_040_000,
+            bg_seq_lengths=[40_000, 2_000_000],
+        )
+
+        assert frame.attrs["background_aggregate"] == WORST_CASE
+        # 2 sites over 2,040,000 bp passes the pooled gate; 1 site over the
+        # small host's own 40,000 bp does not, so the verdict is the key's.
+        assert int(frame.loc[0, "bg_count"]) == 2
+        assert bool(frame.loc[0, "bg_bool"]) is False
+
+
 class TestSampledIndexPath:
     """`filter.py` tells the user to set this in params.json. It must work."""
 

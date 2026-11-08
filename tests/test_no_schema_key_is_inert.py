@@ -170,3 +170,56 @@ def test_mismatch_model_reaches_the_code_that_weights_a_site(monkeypatch):
         if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
     }
     assert {"resolve_mismatch_model", "position_dependent_site_load"} <= called
+
+
+def test_background_aggregate_reaches_the_two_places_that_resolve_it(monkeypatch):
+    """Added 2026-10-02 (Phase 7a). The key says what "the background" is.
+
+    Asserted at BOTH routes, because having two is the thing that can go wrong
+    here: a stage that read `parameter.background_aggregate` itself would carry
+    its own fallback, and the key would appear to work while one of its readers
+    quietly disagreed.
+
+    **The consumer assertion arrived with Phase 7b** and is the third block
+    below: `filter.get_all_rates` resolves the key and dispatches the
+    background gate on it, which is what makes it reach `filter`, `design` and
+    every command that re-runs step 2. Phase 7c adds the step-4 per-host
+    figures; until it lands,
+    `tests/test_design_options_have_effect.py::test_background_aggregate_moves_no_step4_figure_before_7c`
+    states that step 4 still does not read it.
+    """
+    import ast
+    import inspect
+
+    from neoswga.core import background_aggregate as ba
+    from neoswga.core import filter as filter_module
+    from neoswga.core import parameter
+    from neoswga.core.design_request import resolve_design_request
+
+    monkeypatch.setattr(parameter, "background_aggregate", None, raising=False)
+    assert ba.resolve_background_aggregate() == ba.SUM
+
+    monkeypatch.setattr(parameter, "background_aggregate", "worst-case", raising=False)
+    assert ba.resolve_background_aggregate() == ba.WORST_CASE
+
+    request = resolve_design_request(
+        {
+            "fg_genomes": ["a.fna"],
+            "fg_prefixes": ["a"],
+            "polymerase": "phi29",
+            "reaction_temp": 30.0,
+            "background_aggregate": "worst-case",
+        }
+    )
+    assert request.background_aggregate == ba.WORST_CASE
+
+    # The consumer: the step-2 gate resolves the key and dispatches on it.
+    source = inspect.getsource(filter_module.get_all_rates)
+    tree = ast.parse(source.strip())
+    called = {
+        node.func.id
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+    }
+    assert "resolve_background_aggregate" in called
+    assert "WORST_CASE" in source, "the gate must branch on the value, not merely read it"
