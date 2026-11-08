@@ -23,9 +23,13 @@ definitions drifting while each stays self-consistent.
 The returned object carries only the fields something reads on purpose. A
 caller reaching for one nothing computes gets an `AttributeError` rather than a
 default that would be indistinguishable from a measurement.
+`worst_target_coverage` joined it on 2026-10-02 for that reason and not as a
+convenience: `min_per_target_coverage` became an enforced limit, so
+`PoolObjective.violations` now reads that field, and the objective's `getattr`
+default would have made the floor unmeetable on every panel.
 
 **`bg_coverage` joined them on 2026-11-02, and the cost objection did not apply
-to it.** This docstring used to say a caller reaching for a SIXTH field would
+to it.** This docstring used to say a caller reaching for a further field would
 take that `AttributeError`, and `stage2_background_weight` was refused on those
 grounds. Measured, the field costs +48% per evaluation (3.56 ms to 5.26 ms on a
 4 Mb host) and is **2.05x cheaper** than the full `compute_metrics` that
@@ -61,6 +65,18 @@ class PoolMetrics:
     #: genome -- not 0.0, which is what a weighted host axis would trade
     #: against. Defaulted so the five-field constructor calls still read.
     bg_coverage: float | None = None
+
+    # Added 2026-10-02, when `min_per_target_coverage` became an enforced
+    # limit and `PoolObjective.violations` began reading this field. It is here
+    # because it is READ, which is the rule this module keeps: without it the
+    # objective's `getattr(metrics, metric, None)` would hand `_unmet` a None on
+    # every panel, so the floor would be unmeetable while reading as a violated
+    # constraint and the bounded repair would chase it to no end.
+    #
+    # The MINIMUM over the per-target fractions, and `None` when any target
+    # could not be measured -- never the lowest of the ones that answered. The
+    # loop is `core/target_coverage.py`, the same one `compute_metrics` uses.
+    worst_target_coverage: float | None = None
 
     # The per-host reading of the two background figures above, added
     # 2026-10-02. Not a sixth design quantity: it is the SAME two limits read
@@ -98,10 +114,12 @@ def compute_pool_metrics(optimizer, primers: list[str]) -> PoolMetrics:
         # An empty panel covers 0.0 of a background that EXISTS, which is a
         # measurement like the 0.0 foreground coverage beside it. Absence is
         # reserved for having no background to measure against at all.
+        # `worst_target_coverage` stays None, as in `PrimerSetMetrics.empty()`:
+        # no panel is not a measured zero on any target.
         empty_bg = (
             0.0 if optimizer.bg_prefixes and int(sum(optimizer.bg_seq_lengths or [])) > 0 else None
         )
-        return PoolMetrics(0.0, None, 0.0, 0, float("inf"), empty_bg)
+        return PoolMetrics(0.0, None, 0.0, 0, float("inf"), empty_bg, None)
 
     fg_by_prefix = {prefix: set() for prefix in optimizer.fg_prefixes}
     bg_by_prefix = {prefix: set() for prefix in optimizer.bg_prefixes}
@@ -119,9 +137,16 @@ def compute_pool_metrics(optimizer, primers: list[str]) -> PoolMetrics:
     fg_by_prefix = {p: sorted(v) for p, v in fg_by_prefix.items()}
     bg_by_prefix = {p: sorted(v) for p, v in bg_by_prefix.items()}
 
+    # Both through the same helpers `compute_metrics` uses, so the two
+    # evaluators cannot disagree about either figure -- including about whether
+    # the per-target one was computed at all, which depends on a configured
+    # floor. Two different geometries on purpose: the aggregate unconfined, the
+    # per-target ones confined to each record (audit F3). See
+    # `core/target_coverage.py`.
     fg_coverage = optimizer._coverage_over_prefixes(
         fg_by_prefix, optimizer.fg_prefixes, optimizer.fg_seq_lengths
     )
+    target_coverage = optimizer._confined_coverage_by_target(fg_by_prefix)
 
     effective_fg_coverage = None
     if optimizer.conditions is not None:
@@ -193,5 +218,6 @@ def compute_pool_metrics(optimizer, primers: list[str]) -> PoolMetrics:
         total_bg_sites=total_bg,
         max_gap=max(gaps) if gaps else float("inf"),
         bg_coverage=bg_coverage,
+        worst_target_coverage=target_coverage.worst,
         **reading,
     )

@@ -298,9 +298,15 @@ class CoverageMetrics:
     # overall_coverage. None when the value comes from the fallback
     # estimate (n_primers * 30 kb) instead of a measured optimizer run.
     extension_reach: int | None = None
-    # Per-target coverage (multi-genome runs): maps fg prefix -> coverage.
-    # Empty for single-genome runs. Read from the optimizer summary.
+    # Per-target coverage: maps fg prefix -> coverage, record-confined (audit
+    # finding F3). Read from the optimizer summary.
     per_target_coverage: dict[str, float] = field(default_factory=dict)
+    # The MINIMUM over the dict above, which is what `min_per_target_coverage`
+    # is read against. `None` when the summary does not carry it, and also when
+    # a target could not be measured -- the two are not distinguished here
+    # because the report cannot tell an old summary from an unmeasured target;
+    # the renderer says "not measured" either way rather than showing a number.
+    worst_target_coverage: float | None = None
     # Measured coverage uniformity (Gini of gap sizes) from the optimizer.
     coverage_uniformity: float | None = None
 
@@ -1254,6 +1260,13 @@ def collect_pipeline_metrics(results_dir: str) -> PipelineMetrics:
         # Per-target coverage (multi-genome) and measured coverage uniformity.
         if isinstance(opt_metrics.get("per_target_coverage"), dict):
             metrics.coverage.per_target_coverage = opt_metrics["per_target_coverage"]
+        # Not `.get(..., 0.0)`: a summary written before this field existed, and
+        # a run where a target could not be measured, both give None, and 0.0
+        # there would read as a panel that reaches one target nowhere.
+        if opt_metrics.get("worst_target_coverage") is not None:
+            metrics.coverage.worst_target_coverage = _safe_float(
+                opt_metrics["worst_target_coverage"], default=None
+            )
         if "coverage_uniformity" in opt_metrics:
             metrics.coverage.coverage_uniformity = _safe_float(opt_metrics["coverage_uniformity"])
 

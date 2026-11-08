@@ -157,9 +157,15 @@ Helpers:
 - `get_typical_amplicon_length(name)` → interpretation (3).
 
 `coverage.compute_per_prefix_coverage` defaults to
-`typical_amplicon_length` (3 kb for phi29) so `fg_coverage` /
-`per_target_coverage` reflect the fraction of target genome within
-amplification reach of the selected primer set. The amplicon-network
+`typical_amplicon_length` (3 kb for phi29) so the coverage it reports --
+`evaluate-set`'s per-reference figures, and `per_target_coverage` and
+`worst_target_coverage` inside a design -- reflects the fraction of
+target genome within amplification reach of the selected primer set.
+Since 2026-10-02 `optimize` produces those two through
+`coverage.confined_covered_bases`, the marking half of that same
+function, so both commands report one quantity; `fg_coverage` comes from
+`coverage.union_coverage` at the same reach and differs only in not
+confining a window to one FASTA record. The amplicon-network
 reachability path still uses processivity because the question there is
 "can two primers connect in principle?" not "how much genome is in
 reach?".

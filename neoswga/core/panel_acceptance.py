@@ -43,16 +43,27 @@ LIMIT_KEYS: tuple[str, ...] = (
     "max_mean_gap",
     "max_evenness",
     "max_host_coverage",
+    # Joined the enforced limits on 2026-10-02. It was in `CONFIGURED_LIMIT_KEYS`
+    # alone -- configured, checked and reported, and deliberately not repaired,
+    # because the repair scores candidate panels through `compute_metrics` and
+    # `compute_metrics` did not populate per-target coverage. It does now, and
+    # `worst_target_coverage` is the figure this limit is read against. See
+    # `core/target_coverage.py` and Phase 6c of the 2026-10-02 diversity plan.
+    "min_per_target_coverage",
 )
 
 # Every limit `parameter._apply_params_only_keys` assigns from params.json with
 # no fallback. `max_dimer_dg` is not a panel limit -- it is a term in the dimer
 # screen, which stays outside the objective -- so it rides here for the
 # configuration plumbing only and never reaches `PoolConstraints`.
-CONFIGURED_LIMIT_KEYS: tuple[str, ...] = LIMIT_KEYS + (
-    "max_dimer_dg",
-    "min_per_target_coverage",
-)
+CONFIGURED_LIMIT_KEYS: tuple[str, ...] = LIMIT_KEYS + ("max_dimer_dg",)
+
+# Keys where 0.0 means "disabled" rather than "a floor of zero". One key has
+# ever been spelled that way: `--min-per-target-coverage 0` has meant off since
+# before it was a limit, and reading it as a floor would build an objective for
+# a run that asked for nothing -- which is the one thing that would move a
+# delivered panel unasked.
+DISABLED_WHEN_ZERO: frozenset[str] = frozenset({"min_per_target_coverage"})
 
 
 @dataclass(frozen=True)
@@ -100,6 +111,16 @@ class AcceptanceReport:
                 "figure, each reduced over hosts separately. The pooled figures "
                 "are in the summary under their own names."
             )
+        if any(name == "min_per_target_coverage" for name, _v, _l in self.values):
+            # The one row whose panel figure is a reduction over several
+            # measurements rather than one. Said here because "0.31" in a column
+            # reads as a property of the panel, and this one is a minimum.
+            head.append("")
+            head.append(
+                "min_per_target_coverage is read against worst_target_coverage: "
+                "the MINIMUM over the foreground targets, shown as not measured "
+                "when any target could not be measured, which does not pass."
+            )
         if self.violations:
             head.append("")
             head.append(f"Not met: {', '.join(self.violations)}.")
@@ -119,18 +140,43 @@ class AcceptanceReport:
         return {by_message[v] for v in self.violations if v in by_message}
 
 
-def constraints_from_parameter(source: Any) -> PoolConstraints | None:
+def _flag(flags: Any, key: str) -> Any:
+    """One limit as this invocation gave it, or `None` for "not asked".
+
+    `flags` is an argparse namespace or the kwargs dict `run_optimization`
+    receives, which is the same value by another name.
+    """
+    if flags is None:
+        return None
+    if isinstance(flags, dict):
+        return flags.get(key)
+    return getattr(flags, key, None)
+
+
+def constraints_from_parameter(source: Any, flags: Any = None) -> PoolConstraints | None:
     """The limits this run configured, or `None` when it configured none.
 
     `None` rather than an empty `PoolConstraints`, because the caller uses it to
     decide whether to build an objective at all. An empty one would be honoured
     identically and would still cost every panel an evaluation.
+
+    `flags` is this invocation's CLI namespace or kwargs, consulted before
+    `source`. `min_per_target_coverage` is the only panel limit that also has a
+    CLI flag, and a flag the enforcing code never reads is Known Issue 8's
+    shape: the floor would print a per-target table and not be repaired, while
+    the same value in params.json would be. An absent flag is `None` and so does
+    not beat the file.
     """
     limits = {}
     for key in LIMIT_KEYS:
-        value = getattr(source, key, None)
-        if value is not None:
-            limits[key] = value
+        value = _flag(flags, key)
+        if value is None:
+            value = getattr(source, key, None)
+        if value is None:
+            continue
+        if key in DISABLED_WHEN_ZERO and not float(value):
+            continue
+        limits[key] = value
     if not limits:
         return None
     return PoolConstraints(**limits)
@@ -350,6 +396,13 @@ class PerTargetReport:
         for name, value in self.coverage:
             mark = "NO" if name in self.below else "yes"
             out.append(f"{name:<52} {value:>10.4f}   {mark}")
+        out.append("")
+        out.append(
+            "The floor is read against worst_target_coverage, the MINIMUM over "
+            "the rows above. A target whose coverage could not be measured is "
+            "not a row here and makes that minimum unknown, in which case the "
+            "limit is refused rather than reported as met."
+        )
         if self.below:
             out.append("")
             out.append(
@@ -358,11 +411,10 @@ class PerTargetReport:
                 "barely beats a balanced one on the mean."
             )
             out.append(
-                "Not repaired, and not because nothing could be done: the "
-                "repair scores candidate panels through `compute_metrics`, "
-                "which does not populate per-target coverage, so chasing this "
-                "floor would score every candidate against an empty dict. "
-                "Raise the panel size or widen the candidate pool instead."
+                "This panel is what one bounded repair returned, or what was "
+                "selected when the repair could not meet the floor. The "
+                "'Configured limits' table above says which. Raising the panel "
+                "size or widening the candidate pool is the other lever."
             )
         out.append("=" * 72)
         return out
@@ -373,8 +425,14 @@ def check_per_target_coverage(metrics: Any, floor: float | None) -> PerTargetRep
 
     `None` rather than a passing report when no floor is set, when the floor is
     0.0 (how this option has always spelled "disabled"), or when
-    `per_target_coverage` is empty -- which is the single-genome case, and a
-    floor on an absent measurement must not read as satisfied.
+    `per_target_coverage` is empty, because a floor on an absent measurement
+    must not read as satisfied.
+
+    This is a REPORTER, and that last case is why it cannot be the only guard:
+    "nothing to say" and "every target cleared the floor" print the same, which
+    is nothing. `target_coverage.require_per_target` refuses a requested
+    floor that nothing measured, and `pool_objective._unmet` refuses one whose
+    `worst_target_coverage` is `None`; both run before this is called.
     """
     if not floor:
         return None
