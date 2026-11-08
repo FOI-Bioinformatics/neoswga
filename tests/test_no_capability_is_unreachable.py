@@ -85,6 +85,13 @@ WATCHED = (
     # under `worst-case`, which is off by default, so a default run would not
     # notice any of it becoming orphaned.
     "core/background_gate.py",
+    # Added 2026-10-02 with the enforced per-target floor. Two of its four
+    # public names are not extractions: `require_per_target` is reached from
+    # exactly one call site in `unified_optimizer` and `saturation_issues` from
+    # one, and the limit they serve is off by default -- so a default run would
+    # notice nothing if either became orphaned, which is the shape that hid the
+    # six findings this file was written for.
+    "core/target_coverage.py",
 )
 
 # Public names no command can reach today, and why. Shrink this list.

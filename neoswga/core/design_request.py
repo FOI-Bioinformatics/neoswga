@@ -563,14 +563,28 @@ def _resolve_oligos(params: Mapping[str, Any]) -> tuple[tuple[str, ...], tuple[s
     return fixed, excluded
 
 
-def _resolve_constraints(params: Mapping[str, Any], has_background: bool):
+def _resolve_constraints(params: Mapping[str, Any], has_background: bool, sources: dict):
     """Panel limits, refusing a background-measured one with no background.
 
     Reported as satisfied is the failure this prevents: the quantity cannot be
     measured at all without a host reference, and a limit on an unmeasurable
     quantity either passes vacuously or fails every panel. Neither is what the
     user asked for, and the remedy is to supply the reference.
+
+    `coverage_metric` is carried onto the returned `PoolConstraints` when the
+    request states it. It is a field of that dataclass with a default of
+    `"effective"`, and `constraints_from_parameter` never set it, so a recorded
+    request whose run selected on RAW coverage named `effective` anyway -- and
+    `constraints` is hashed, so after the CLI overlay the hash claimed to cover
+    the constraints faithfully while one of their fields was a placeholder.
+    When the request does not state it, the field is left at its default and
+    `default_sources` says the metric is resolved at selection time instead, so
+    the record does not assert a choice nobody made. Nothing is named when no
+    limit is configured at all: `constraints_from_parameter` returns None then,
+    and there is no object to misdescribe.
     """
+    from dataclasses import replace
+
     from .panel_acceptance import constraints_from_parameter
     from .pool_objective import _LIMITS
 
@@ -583,7 +597,17 @@ def _resolve_constraints(params: Mapping[str, Any], has_background: bool):
                     "names none. Supply bg_genomes/bg_prefixes, or remove the limit.",
                     params[field_name],
                 )
-    return constraints_from_parameter(SimpleNamespace(**dict(params)))
+    constraints = constraints_from_parameter(SimpleNamespace(**dict(params)))
+    metric = params.get("coverage_metric")
+    if metric:
+        sources["coverage_metric"] = "request"
+        if constraints is not None:
+            constraints = replace(constraints, coverage_metric=str(metric))
+    else:
+        sources["coverage_metric"] = (
+            "resolved at selection: effective with reaction conditions, raw without"
+        )
+    return constraints
 
 
 def _require_references(params: Mapping[str, Any]) -> None:
@@ -675,7 +699,7 @@ def resolve_design_request(params: Mapping[str, Any]) -> DesignRequest:
     fixed, excluded = _resolve_oligos(params)
     budgets = _resolve_budgets(params, sources)
     has_background = bool(params.get("bg_prefixes"))
-    constraints = _resolve_constraints(params, has_background)
+    constraints = _resolve_constraints(params, has_background, sources)
     policy = _resolve_concentration(params, sources)
 
     min_k = int(params.get("min_k", 6))
@@ -797,6 +821,59 @@ def params_from_parameter_module(parameter) -> dict[str, Any]:
     return params
 
 
+#: Flags that name a params.json key, carry `None` as their argparse default,
+#: and so mean "this invocation asked for it" when set. They are overlaid onto
+#: the params FILE before a request is resolved, because `constraints`,
+#: `coverage_reach`, `polymerase` and the search budgets are all hashed, and a
+#: flag that changes the delivered panel without moving `request_hash` leaves
+#: two different designs sharing one identity. Found on 2026-10-02 for
+#: `min_per_target_coverage`, the first panel limit with a flag: it steered the
+#: search while the request was resolved from the file alone, so the flag run
+#: and the no-flag run recorded the same hash and delivered different primers.
+#: The mechanism is the fix rather than that one key.
+#:
+#: `num_primers` is absent because `effective_design_request` already overlays
+#: the effective size, after this, under both its names. `data_dir` names a
+#: directory rather than a setting, and `verbose` does not default to None.
+#: `tests/test_a_flag_that_changes_a_design_moves_its_identity.py` refuses a new
+#: flag that belongs here and is missing.
+_CLI_OVERLAY_KEYS: tuple[str, ...] = (
+    "allow_dimer_relaxation",
+    "coverage_metric",
+    "coverage_reach",
+    "min_per_target_coverage",
+    "optimization_method",
+    "polymerase",
+    "refinement_method",
+    "seed",
+    "swap_max_evaluations",
+    "swap_max_seconds",
+)
+
+#: Flags sharing a key with the schema that deliberately do NOT overlay, each
+#: with the reason, so the ratchet can tell "considered" from "forgotten".
+CLI_OVERLAY_EXCLUDED: dict[str, str] = {
+    "num_primers": "overlaid by effective_design_request as the effective size",
+    "data_dir": "names a directory, not a design setting",
+    "verbose": "does not default to None and is not a design setting",
+}
+
+
+def cli_overrides(args) -> dict[str, Any]:
+    """What this invocation set on the command line, by params.json name.
+
+    An absent flag is `None` and contributes nothing, so the file still wins
+    where no flag was given -- the Known Issue 8 rule, applied to identity
+    rather than to behaviour.
+    """
+    overrides: dict[str, Any] = {}
+    for key in _CLI_OVERLAY_KEYS:
+        value = getattr(args, key, None)
+        if value is not None:
+            overrides[key] = value
+    return overrides
+
+
 def design_request_from_parameter_module(parameter) -> DesignRequest:
     """Resolve and validate the request this run is about to execute."""
     return resolve_design_request(params_from_parameter_module(parameter))
@@ -821,7 +898,9 @@ def design_request_for_run(args, parameter) -> DesignRequest | None:
         return None
     with open(path) as handle:
         supplied = json.load(handle)
-    return resolve_design_request(supplied)
+    # The flags this invocation set, so a setting that cannot be applied is
+    # named here whether it came from the file or the command line.
+    return resolve_design_request({**supplied, **cli_overrides(args)})
 
 
 def effective_design_request(args, target_size=None) -> DesignRequest | None:
@@ -851,6 +930,11 @@ def effective_design_request(args, target_size=None) -> DesignRequest | None:
         return None
     with open(path) as handle:
         supplied = json.load(handle)
+
+    # Every flag this invocation set, not only the size. `min_per_target_coverage`
+    # is the case that found this: it steers the search, so a flag run and a
+    # no-flag run delivered different primers under one `request_hash`.
+    supplied = {**supplied, **cli_overrides(args)}
 
     if target_size is not None:
         supplied = {**supplied, "target_set_size": target_size, "num_primers": target_size}

@@ -234,6 +234,15 @@ when `min_per_target_coverage` is set. No selection stage sees it and there is
 no minimax term, so on aggregate coverage a panel covering two targets 0.9 and
 0.1 beats one covering them 0.5 and 0.5.
 
+> Superseded 2026-10-02 (Phase 6c of the diversity plan). `compute_metrics`
+> now produces `per_target_coverage` and a scalar `worst_target_coverage`, and
+> `min_per_target_coverage` is a row in `pool_objective._LIMITS`, so the
+> acceptance check and the bounded repair both see the figure. There is still
+> no minimax term inside the search and Stage 1 is still not constraint-aware;
+> what changed is that a configured floor is enforced and repaired once rather
+> than reported. The figure is record-confined (audit finding F3) and the key
+> ships unset, so nothing measured in this record moves.
+
 ## The clique method is the least condition-aware
 
 It is the only method that guarantees a dimer-free set, which is a real property
