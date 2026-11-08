@@ -98,6 +98,21 @@ class PanelAssessment:
     per_target: Mapping[str, Measurement]
     violations: tuple[str, ...]
     qualified: bool
+    #: One record per HOST genome, beside `per_target`: sites, occupancy load,
+    #: coverage and `selectivity_density` against that host's own length, from
+    #: `core/per_host_metrics.py`. Keyed by prefix. Empty with fewer than two
+    #: hosts, where the pooled figures in `metrics` say the same thing.
+    #:
+    #: Not `Measurement` objects: each host carries six figures and its own
+    #: reason for not having them, and wrapping each separately would put six
+    #: `unavailable` strings where the module already records one per host.
+    #: `metrics["background_aggregate_note"]` is not a thing either -- which
+    #: reading produced the pooled figures is in `background_aggregate` below.
+    per_host: Mapping[str, Mapping[str, object]] = field(default_factory=dict)
+    #: Which reading of "the background" the pooled figures in `metrics` were
+    #: taken under, and the one the configured limits were applied under. Always
+    #: present, so a saved assessment never leaves a reader to infer it.
+    background_aggregate: str = "sum"
     #: The subset of `violations` that should refuse a panel. A gate consults
     #: this and never `qualified`, because the two differ on a normal outcome:
     #: `num_primers` is a request rather than a guarantee, so a panel shorter
@@ -152,6 +167,12 @@ class PanelAssessment:
             "zero_background": self.zero_background,
             "metrics": {name: m.as_dict() for name, m in sorted(self.metrics.items())},
             "per_target": {name: m.as_dict() for name, m in sorted(self.per_target.items())},
+            # One entry per host, each already carrying its own `unavailable`.
+            # `background_aggregate` sits beside it because the pooled figures in
+            # `metrics` and this table are two readings of the same background,
+            # and a reader must not have to guess which bound the limits.
+            "per_host": {name: dict(row) for name, row in sorted(self.per_host.items())},
+            "background_aggregate": self.background_aggregate,
             "model_versions": [list(pair) for pair in self.model_versions],
             "evidence": dict(sorted(self.evidence.items())),
             "notes": list(self.notes),
@@ -339,6 +360,23 @@ def evaluate_panel(request, oligos, metrics, *, objective=None) -> PanelAssessme
             f"coverage[{prefix}]", value, "fraction of target bases", basis, subject
         )
 
+    # The host side, carried from the metrics rather than recomputed: the
+    # evaluator measured each host on its own length during the run, and a
+    # second measurement here is how two records of one panel come to disagree.
+    per_host = {
+        str(prefix): dict(row) for prefix, row in (getattr(metrics, "per_host", None) or {}).items()
+    }
+    # Named here too, because the three background-measured limits below were
+    # applied to the figure this aggregate selects.
+    aggregate = str(getattr(metrics, "background_aggregate", None) or "sum")
+    named["worst_host_selectivity_density"] = _measure(
+        "worst_host_selectivity_density",
+        getattr(metrics, "worst_host_selectivity_density", None),
+        "dimensionless",
+        "lowest per-host density; null when any host went unmeasured",
+        subject,
+    )
+
     # Hard properties of the delivered panel, each already enforced elsewhere
     # and brought here so one record can be believed. `objective` keeps owning
     # the CONFIGURED limits; these three are not configurable and never were.
@@ -371,6 +409,8 @@ def evaluate_panel(request, oligos, metrics, *, objective=None) -> PanelAssessme
         request_hash=getattr(request, "request_hash", ""),
         metrics=named,
         per_target=per_target,
+        per_host=per_host,
+        background_aggregate=aggregate,
         violations=tuple(violations),
         qualified=not violations,
         blocking_violations=blocking,

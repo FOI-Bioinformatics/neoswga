@@ -113,6 +113,14 @@ class BackgroundAwareBaseOptimizer(BaseOptimizer):
             **kwargs,
         )
 
+        # Refused before the inner optimizer exists, for a caller that reached
+        # this class directly rather than through `run_optimization`'s gate: the
+        # host term below ranks on a site count scaled by `background_weight`,
+        # and no measurement establishes that weight under the per-host reading.
+        from neoswga.core.per_host_metrics import refuse_uncalibrated_host_term
+
+        refuse_uncalibrated_host_term(self.name, self.background_aggregate, len(self.bg_prefixes))
+
         # Delegate to HybridOptimizer with background pruning enabled
         from neoswga.core.hybrid_optimizer import HybridOptimizer
 
@@ -180,6 +188,14 @@ class BackgroundAwareBaseOptimizer(BaseOptimizer):
             "stage2_background_weight",
             getattr(self.config, "stage2_background_weight", None),
         )
+
+        # The reading BaseOptimizer resolved. This is the optimizer whose host
+        # term the key is for: `_prune_background` and `_network_refine`'s host
+        # weighting both charge through `_count_background_sites`, and under
+        # `worst-case` that charge is the worst host's density rather than the
+        # pooled sum. Resolving it again here could disagree with the metrics
+        # this wrapper reports.
+        self._hybrid.background_aggregate = self.background_aggregate
 
         # A second BackgroundAwareOptimizer was built here "for backward
         # compat (standalone use)" and read by nothing. Constructing it built a

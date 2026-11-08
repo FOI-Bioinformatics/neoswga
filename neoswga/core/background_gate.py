@@ -142,6 +142,28 @@ def host_panel(
     if not prefixes:
         return ()
 
+    # A prefix listed twice is one host, counted twice. `filter.rates_by_prefix`
+    # keys its per-host counts BY PREFIX, so both tasks accumulate into one
+    # bucket: the pooled sum stays right, and the per-host count doubles -- which
+    # makes that host's gate twice as strict under `worst-case` and silently
+    # drops one of the two rows from any dict keyed by prefix. Refusing is the
+    # only answer that does not quietly pick one of three wrong numbers, and a
+    # design that lists the same host twice is a configuration mistake rather
+    # than a reading of the background.
+    duplicates = sorted({prefix for prefix in prefixes if prefixes.count(prefix) > 1})
+    if duplicates:
+        raise InvalidDesignRequest(
+            "bg_prefixes",
+            (
+                f"the same background prefix is listed more than once "
+                f"({', '.join(duplicates)}). Per-host counts are keyed by prefix, so "
+                f"a repeated host is counted once and reported twice, and under "
+                f"'{WORST_CASE}' its gate would be as strict as the number of times "
+                f"it appears. List each host genome once"
+            ),
+            prefixes,
+        )
+
     unusable = len(prefixes) != len(lengths) or any(
         length is None or int(length) <= 0 for length in lengths
     )

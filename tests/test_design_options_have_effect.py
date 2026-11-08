@@ -799,23 +799,28 @@ def test_the_mismatch_model_changes_the_load_and_says_which_model_ran(mismatch_w
 # background_aggregate: acting in step 2, not yet in step 4
 # ----------------------------------------------------------------------
 #
-# Added 2026-10-02 (Phase 7a), split 2026-10-02 (Phase 7b). params.json only;
-# there is no flag. The key says whether several hosts are pooled (`sum`) or
-# judged one at a time on their own lengths (`worst-case`).
+# Added 2026-10-02 (Phase 7a), split 2026-10-02 (Phase 7b), completed
+# 2026-10-02 (Phase 7c). params.json only; there is no flag. The key says
+# whether several hosts are pooled (`sum`) or judged one at a time on their own
+# lengths (`worst-case`).
 #
-# The two halves are now at different stages, so they are asserted apart.
+# Both stages now read it, and they are asserted apart because they act
+# differently.
 #
-# - **Step 2 reads it.** `test_background_aggregate_changes_the_step2_gate`
-#   below is the usual assertion: changing the option changes the output. The
+# - **Step 2.** `test_background_aggregate_changes_the_step2_gate` below. The
 #   full behaviour, including the funnel and the per-host columns, is in
 #   `tests/test_the_background_gate_reads_the_aggregate.py`.
-# - **Step 4 does not, yet.** `compute_metrics` still returns the pooled
-#   figures under both values, and
-#   `test_background_aggregate_moves_no_step4_figure_before_7c` says so number
-#   by number on a design whose two hosts differ in size by a factor of 43.
-#   That is the claim a dispatch added in the wrong place would break
-#   silently, and it is replaced -- not deleted -- when Phase 7c lands the
-#   per-host figures.
+# - **Step 4.** `test_background_aggregate_moves_the_step4_figures` below. The
+#   POOLED figures are deliberately unchanged -- they keep their pooled meaning
+#   under every aggregate, so no output means two things -- and the per-host
+#   reduction is what the configured limits are read against. The full
+#   behaviour, including the limits that bind per host and the unmeasured host
+#   that is refused rather than satisfied, is in
+#   `tests/test_per_host_figures.py`; the `background-aware` host term is in
+#   `tests/test_the_host_term_reads_the_aggregate.py`.
+#
+# This replaces 7a's `test_background_aggregate_moves_no_step4_figure_before_7c`,
+# which asserted number by number that step 4 did NOT read the key.
 
 
 @pytest.fixture(scope="module")
@@ -897,19 +902,25 @@ def test_background_aggregate_changes_the_step2_gate(two_host_world, monkeypatch
     assert background_gate.worst_case_verdict(counts, primer, panel, 5e-6) is False
 
 
-@pytest.mark.parametrize("aggregate", [None, "sum", "worst-case"])
-def test_background_aggregate_moves_no_step4_figure_before_7c(
-    two_host_world, monkeypatch, aggregate
-):
-    """Every value gives the pooled step-4 figures, because `compute_metrics`
-    does not read the key yet; Phase 7c is what wires it.
+def test_background_aggregate_moves_the_step4_figures(two_host_world, monkeypatch):
+    """The usual assertion for step 4: changing the option changes the output.
 
-    Compared number by number against the key absent rather than read from the
-    code: "step 4 has not changed" is exactly the claim a half-wired dispatch
-    breaks silently.
+    What changes is the figure a configured panel limit is read against, not the
+    pooled figures. On this world -- a 40 kb host carrying every oligo and a
+    1.72 Mb host carrying none -- the pooled density is 44.0 and the worst
+    host's is 1.0, so a floor of 10 passes pooled and fails per host with the
+    same limit key and the same panel.
+
+    The pooled fields are asserted UNCHANGED on purpose. Overwriting them under
+    `worst-case` would make `selectivity_density` mean the pool in one output
+    and one host in another; instead the reduction carries its own name and the
+    aggregate is recorded beside both.
     """
-    pooled = _two_host_metrics(two_host_world, monkeypatch, None)
-    measured = _two_host_metrics(two_host_world, monkeypatch, aggregate)
+    from neoswga.core.pool_objective import PoolConstraints, PoolObjective
+
+    absent = _two_host_metrics(two_host_world, monkeypatch, None)
+    pooled = _two_host_metrics(two_host_world, monkeypatch, "sum")
+    worst = _two_host_metrics(two_host_world, monkeypatch, "worst-case")
 
     for field in (
         "effective_fg_sites",
@@ -918,7 +929,20 @@ def test_background_aggregate_moves_no_step4_figure_before_7c(
         "selectivity_density",
         "selectivity_mode",
         "fg_coverage",
+        "bg_coverage",
         "total_fg_sites",
         "total_bg_sites",
     ):
-        assert getattr(measured, field) == getattr(pooled, field), field
+        assert getattr(pooled, field) == getattr(absent, field), field
+        assert getattr(worst, field) == getattr(absent, field), field
+
+    assert absent.background_aggregate == "sum"
+    assert worst.background_aggregate == "worst-case"
+    assert worst.worst_host_selectivity_density < worst.selectivity_density
+
+    def violations(metrics):
+        constraints = PoolConstraints(min_selectivity_density=10.0)
+        return PoolObjective(lambda _p: metrics, constraints).violations(["X"])
+
+    assert violations(pooled) == ()
+    assert violations(worst) == ("selectivity below minimum",)

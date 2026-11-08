@@ -847,7 +847,7 @@ tables outside the repository and refuses a `--table-dir` inside it, because a
 run has to leave `git status --porcelain` unchanged. Distance 2 costs about 19x
 distance 1 and stays behind `max_mismatches`.
 
-### `background_aggregate`: what "the background" is, acting in step 2
+### `background_aggregate`: what "the background" is, in steps 2 and 4
 
 ```bash
 {"background_aggregate": "worst-case"}
@@ -994,16 +994,166 @@ Nothing else reads the key, because a stage reaching into `parameter` itself
 would carry its own fallback and the key would appear to work while one reader
 disagreed (Known Issue 8, one layer down).
 
-**What is still to do.** Phase 7c adds the per-host figures to
-`PrimerSetMetrics` and `PanelAssessment` and makes `min_selectivity_density`,
-`max_background_sites` and `max_host_coverage` bind per host under
-`worst-case` with no new limit keys. One test still states the 7a position, for
-step 4 alone, and is replaced rather than deleted when 7c lands:
-`tests/test_design_options_have_effect.py::test_background_aggregate_moves_no_step4_figure_before_7c`.
-`BaseOptimizer.__init__` already accepts a `background_aggregate` argument for
-the modelled-profile path and its constructor default is `worst-case`, which
-is NOT this key's default; 7c has to pass the resolved value explicitly rather
-than let either default leak into the other.
+**What 7c made act: step 4's per-host figures.** `core/per_host_metrics.py` is
+new and holds both the per-host measurement and every reduction over hosts. A
+third module rather than a third copy of the rule: `base_optimizer.py` was at
+its size budget, and the quantity is per host while every figure that module
+produces is pooled.
+
+| Place | What 7c changed |
+|---|---|
+| `core/per_host_metrics.py` | `HostFigures`, `BackgroundReading`, `measure_background`, `limit_figure`, `host_site_charge`, `AGGREGATE_REDUCED` |
+| `core/base_optimizer.py` | `PrimerSetMetrics` gains `background_aggregate`, `per_host`, `worst_host` and the three `worst_host_*` reductions; `compute_metrics` makes one call; `__init__`'s argument takes `None` and resolves through the seam; `_modelled_site_load` loses its second default |
+| `core/pool_metrics.py` | `PoolMetrics` records the same reading, so the search sees what acceptance will hold the panel to |
+| `core/pool_objective.py` | `violations` and `shortfall` read through `limit_figure`. `_LIMITS` is unchanged |
+| `core/panel_evaluation.py` | `PanelAssessment.per_host` beside `per_target`, plus `background_aggregate` and a `worst_host_selectivity_density` measurement |
+| `core/hybrid_optimizer.py` | `_count_background_sites` reduces through `host_site_charge`; `background_aggregate` is a class attribute the two wrappers assign |
+| `core/unified_optimizer.py` | resolves the key once per run and passes it to every optimizer it builds |
+| `core/report/per_host_table.py`, `core/report/metrics.py` | the per-host table at two or more hosts, and the two fields that carry it |
+| `core/panel_score.py` | the normalised score, extracted to make room in `base_optimizer.py` |
+
+**The pooled figures keep their pooled meaning under both readings.** This is
+the one design decision in 7c that the plan left open, and it went the other
+way from the plan's wording. The plan said to put the worst host's value into
+`selectivity_density`, `total_bg_sites` and `bg_coverage` and to re-report the
+pooled figures under new names. Two things argued against it. Six call sites do
+arithmetic on those fields without a None check -- `float(metrics.bg_coverage)`
+in the ensemble table and in `step4_output`, `math.isfinite(selectivity_density)`
+in `pool_planner`, and three more -- and the unmeasured-host case requires
+`None`. And every output carrying one of them would have had to start naming
+the aggregate, which is six chances to miss one; that is exactly how
+`occupancy_ranking_mode` came to be written and discarded. So the pooled fields
+are left alone, the reductions get explicit names
+(`worst_host_selectivity_density`, `worst_host_background_sites`,
+`worst_host_bg_coverage`), and `background_aggregate` is recorded beside both.
+No key means the pool in one output and one host in another, which is the guard
+this phase was given, satisfied more strictly than by renaming.
+
+**The limits bind per host through one dispatch.** `limit_figure(metrics,
+metric)` is the only place step 4 branches on the key. Under `sum`, and for
+every limit that is not background-measured, it is the attribute lookup
+`violations` and `shortfall` already performed. Under `worst-case` the three
+background-measured rows read their reduction instead. `_LIMITS` is untouched,
+so there is no new limit key and no per-host threshold list -- the Phase 7
+guard. `AGGREGATE_REDUCED` is pinned to equal the set of `_LIMITS` rows marked
+as needing a background, so a fourth such limit cannot be added and quietly
+evaluated on the pool.
+
+**Each limit reduces independently**: the lowest per-host density, the highest
+per-host site count, the highest per-host coverage. The host with the worst
+density need not be the one with the most sites, and under `worst-case` the
+panel must clear every limit whichever host turns up. `worst_host` names the
+density's host only; `per_host` is the whole table.
+
+**No per-host ratio is offered.** `selectivity_ratio` carries no length, so
+between hosts of different size it moves with the host rather than with the
+panel (Known Issue 6). Each `per_host` row carries `comparable:
+"selectivity_density"` and the report's table says the same in prose. The
+pooled ratio is also what `normalized_score` reads, and it is not reduced over
+hosts: doing so would change which method an ensemble run picks, which is a
+decision rather than a repair.
+
+**An unmeasured host makes the worst case unknown.** `position_cache.has_entry`
+is the question asked, not a hit count (Known Issue 15): a host a primer was
+scanned against and binds nowhere has an entry and a site count of zero, and
+that zero is a result. A host with no entry has no result, and the zero
+`get_positions` returns for it reads as perfect specificity. All three
+reductions are then `None`, `pool_objective._unmet` fails the limit, and
+`shortfall` is infinite. Under `sum` such a host is exactly as invisible as it
+was, which is the same deliberate asymmetry 7b recorded for the step-2 gate.
+
+**One host is one design.** With fewer than two hosts the pooled figures ARE
+the per-host figures and are carried over rather than recomputed, so
+`worst-case` and `sum` agree in every figure exactly. Recomputing would not:
+`_coverage_over_prefixes` returns `(fraction * length) / length`, which is not
+bit-identical to `fraction`. `host_site_charge` has the same property by
+construction, since a density carried back onto the pooled length is the
+pooled count when there is one host.
+
+**The `background-aware` host term, and which stage decides.** Known Issue 14
+is the reason the order matters. `_prune_background` (Stage 1.5) and
+`_network_refine` (Stage 2) both charge the host through
+`_count_background_sites`, and Stage 2's output is the delivered panel -- that
+was established by instrumenting both stages on a two-host world and comparing
+their recorded outputs against the result, not by reading the source, because
+Stage 1 can return at or below `final_count` and skip both. Under `worst-case`
+the charge is the worst host's site DENSITY carried back onto the pooled
+length. Density, because counts are not comparable across hosts of different
+size; back onto the pooled length, because `background_weight` scales this term
+against a coverage term and was calibrated with counts on this side. On the
+test world a candidate with 3 sites on a 30 kb host charges 3 pooled and 132
+per host, while one with 30 sites on a 1.29 Mb host charges 30 pooled and 31
+per host -- the two readings rank them in opposite orders, and the delivered
+panel changes and scores better on the worst host.
+
+**Withdrawn on 2026-11-07: that combination is now refused.** The ranking above
+holds and the magnitude does not. The per-host charge equals the pooled one
+multiplied by `sum(host lengths) / worst host length`: 44 on the test world, and
+1029, 24 or 1.05 on this project's three-host panel depending on which host is
+worst. `background_weight` (default 2.0) was chosen against pooled counts, so a
+weight tuned under `sum` would buy up to a thousand times more host avoidance
+under `worst-case`, paid for in coverage. No measurement establishes the weight
+under the per-host reading, so `background-aware` with `worst-case` and two or
+more hosts raises `InvalidDesignRequest`, at `run_optimization` before any
+optimizer is built, at the constructor, and in `host_site_charge`. An ensemble
+whose method list includes it, or which runs the default list, is refused the
+same way. Every other method honours the key, the per-host figures are still
+computed, and the limits still bind per host. With one host nothing is refused,
+because the two readings are identical. What would settle it is recorded on
+`per_host_metrics.refuse_uncalibrated_host_term`: Phase 3's D3 design rerun
+under `worst-case` across a range of `background_weight`.
+`tests/test_the_host_term_has_one_calibration.py`.
+
+`stage2_background_weight`, the swap refinement's host-coverage axis (#146),
+does not follow the key. It reads the POOLED `bg_coverage` under both readings,
+so its weight keeps the calibration it was measured under and there is nothing
+to refuse. Under `worst-case` that axis and the per-host limits therefore read
+different figures, which is deliberate until a measurement says otherwise.
+
+**The modelled-profile path reads the key**, which is what 7a deferred.
+`_modelled_site_load` had `getattr(self, "background_aggregate", "worst-case")`
+shadowing a key whose default is `sum`; that second default is gone and the key
+decides. Only a panel of SEVERAL profiles is affected -- `aggregate_loads` over
+one profile is that profile under either reading -- and nothing in the CLI or
+the schema supplies a panel, so no reachable design moves. `worst-case` over
+such a panel is now reachable for the first time, which it was not when the
+value was hardcoded.
+
+`core/host_profile.py` was NOT added to `WATCHED` in
+`tests/test_no_capability_is_unreachable.py`. Doing so needs three new
+`KNOWN_UNREACHABLE` entries -- `fit_profile`, `fit_profile_from_fasta` and
+`recommended_order`, none of which any command reaches -- and that list is
+empty and documented as meant to stay so. The wiring buys nothing there either
+way: `aggregate_loads` and `expected_site_load` are already reachable by that
+walk's own definition, through `_modelled_site_load`. The reason is recorded
+beside `WATCHED`.
+
+**Cost.** Per-host figures are measured only when two or more hosts are
+listed. Sites, sites per Mb and coverage come from the per-prefix positions
+`compute_metrics` already holds. The occupancy-weighted load is the one
+quantity positions cannot supply: under mode `exact` each host's load is its
+own site count, free and exactly consistent with the pooled figure, and
+otherwise one `occupancy.weighted_site_load` call per host is added. The pooled
+call is deliberately NOT replaced by the sum of those, because `(a + b) * theta`
+and `a * theta + b * theta` are not the same float and the pooled figures must
+not move.
+
+**Verified against the pre-change tree.** Every pooled step-4 figure on a
+synthetic two-host world (40 kb target; 40 kb and 1.72 Mb hosts, the small one
+carrying every oligo and the large one none) is byte-identical to what `63875a1`
+printed, under the key absent, `sum` and `worst-case`, and for both the
+two-host and the one-host panel. The constants are in
+`tests/test_per_host_figures.py`. The pooled density there is 44.0 and the worst
+host's is 1.0, so `min_selectivity_density: 10` passes pooled and fails per
+host; pooled `bg_coverage` is 0.022 and the worst host's is 0.950, so
+`max_host_coverage: 0.5` does the same.
+
+**Still not measured on real data.** The Phase 7 measurement is unchanged and
+still outstanding; the command is above. It needs hg38 in the host panel and
+about 8 GiB for one `filter`, run one at a time, and
+`scripts/benchmarking/diversity_baseline.py` still has no flag for this key --
+the designs it builds take it through their params.json. Nothing in 7a, 7b or
+7c argues for changing the default.
 
 7b's step-2 half is asserted positively instead, in
 `tests/test_the_background_gate_reads_the_aggregate.py`, in
@@ -1015,6 +1165,14 @@ non-effect claim that is still true, as
 `test_the_two_readings_differ_only_in_this_field_of_the_request`: the resolved
 request differs in nothing but the key, so any difference a stage produces
 comes from the stage reading it.
+
+7c's step-4 half is in `tests/test_per_host_figures.py` (the figures, the
+limits, the unmeasured host, the one-host identity, the report and the saved
+record) and `tests/test_the_host_term_reads_the_aggregate.py` (which stage
+decides, the charge, and the delivered panel).
+`test_design_options_have_effect.py::test_background_aggregate_moves_the_step4_figures`
+replaced 7a's `..._moves_no_step4_figure_before_7c`. No non-effect claim about
+this key survives.
 
 ### `improve-set`: from an existing set to proposed edits
 

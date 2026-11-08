@@ -28,6 +28,7 @@ from typing import Any, Optional
 import pandas as pd
 
 from . import parameter
+from .background_aggregate import resolve_background_aggregate
 from .base_optimizer import OptimizationResult, OptimizationStatus, OptimizerConfig
 from .candidate_source import describe_reach, order_candidates_by_background
 from .coverage_geometries import for_delivered_panel
@@ -45,6 +46,7 @@ from .panel_acceptance import (
     report_per_target,
 )
 from .panel_regime import assess_from_parameter, log_regime
+from .per_host_metrics import refuse_uncalibrated_host_term
 from .position_cache import PositionCache, StreamingPositionCache
 from .progress import progress_context
 from .search_control import SearchBudgetExhausted, collect_alternative_sets  # noqa: F401
@@ -1076,6 +1078,12 @@ def run_optimization(
     search_budget = SearchBudget.from_config(config)
     kwargs["search_budget"] = search_budget
     kwargs["candidate_source"] = _candidate_source
+    # Resolved once and passed EXPLICITLY; see `core/per_host_metrics.py`.
+    kwargs["background_aggregate"] = resolve_background_aggregate()
+    aggregate, ensemble = kwargs["background_aggregate"], kwargs.get("ensemble_methods")
+    refuse_uncalibrated_host_term(
+        method, aggregate, len(bg_prefixes or []), ensemble_methods=ensemble
+    )
     result, optimizer = _dispatch_optimizer(
         method,
         cache,

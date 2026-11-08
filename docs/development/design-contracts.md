@@ -277,6 +277,32 @@ Three rules it enforces, each for a failure this project has seen the shape of:
   and why, and keeps the site count. The sentinel is left in place because
   changing it moves every saved summary.
 
+**`per_host` beside `per_target` (2026-10-02, Phase 7c).** One record per host
+genome, each measured against its OWN length, from
+`core/per_host_metrics.py`. Three contracts come with it.
+
+- **A reduction over hosts is unmeasured when any host is.** Under
+  `background_aggregate: worst-case` the three background-measured panel limits
+  -- `min_selectivity_density`, `max_background_sites` and `max_host_coverage`
+  -- are read against the lowest per-host density, the highest per-host site
+  count and the highest per-host coverage. A host the position cache holds no
+  ANSWER for (`has_entry`, not a hit count) makes all three `None`, and
+  `pool_objective._unmet` then FAILS the limit rather than passing it. The
+  worst of the hosts that happened to answer is not a worst case. This extends
+  the existing refusal of a background-measured limit with no background
+  genome: it is the same rule one level down, per host rather than per design.
+- **A pooled figure stays pooled in every output.** `selectivity_density`,
+  `total_bg_sites` and `bg_coverage` are the pooled background under both
+  readings; the reductions are separate fields named `worst_host_*`, and
+  `background_aggregate` is recorded beside both in the summary and in the
+  assessment. No key means the pool in one output and one host in another.
+- **No per-host count ratio is offered**, and each row says so
+  (`comparable: "selectivity_density"`). The count ratio moves with how big a
+  host happens to be, which is Known Issue 6; a per-host column of it would
+  invite exactly the comparison that does not hold. The pooled ratio is also
+  the term `normalized_score` reads and is deliberately not reduced over hosts,
+  because that would change which method an ensemble run picks.
+
 **The REPORT reads it as of 2026-09-27**, so a rendered figure and a stored one
 cannot come from different arithmetic. `report/metrics.py` applies the
 assessment LAST, after its own estimate and after the summary JSON, and a

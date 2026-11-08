@@ -49,7 +49,7 @@ fabricated zero.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 
 @dataclass(frozen=True)
@@ -78,6 +78,23 @@ class PoolMetrics:
     # loop is `core/target_coverage.py`, the same one `compute_metrics` uses.
     worst_target_coverage: float | None = None
 
+    # The per-host reading of the two background figures above, added
+    # 2026-10-02. Not a sixth design quantity: it is the SAME two limits read
+    # under `background_aggregate: worst-case`, and the search has to see what
+    # the acceptance path will hold the panel to or a repair would chase the
+    # pooled figure and be rejected on the worst host's. `per_host_metrics`
+    # produces all of it in one call, and `background_aggregate` is here so
+    # `limit_figure` can dispatch without reaching for a global.
+    #
+    # `worst_host_bg_coverage` is deliberately absent: `max_host_coverage`
+    # routes to the full evaluator (`panel_refinement.objective_for_optimizer`),
+    # and a limit this object cannot answer for reads `None` and is refused.
+    background_aggregate: str = "sum"
+    per_host: dict[str, dict] = field(default_factory=dict)
+    worst_host: str | None = None
+    worst_host_selectivity_density: float | None = None
+    worst_host_background_sites: int | None = None
+
 
 def compute_pool_metrics(optimizer, primers: list[str]) -> PoolMetrics:
     """The five design quantities for one panel.
@@ -89,6 +106,7 @@ def compute_pool_metrics(optimizer, primers: list[str]) -> PoolMetrics:
     which primer put a site where.
     """
     from .base_optimizer import _selectivity_density_from_loads
+    from .per_host_metrics import measure_background
 
     if not primers:
         # An empty panel covers 0.0 of a background that EXISTS, which is a
@@ -172,6 +190,25 @@ def compute_pool_metrics(optimizer, primers: list[str]) -> PoolMetrics:
     for prefix, length in zip(optimizer.fg_prefixes, optimizer.fg_seq_lengths, strict=True):
         gaps.extend(optimizer._compute_gaps(fg_by_prefix.get(prefix, []), length))
 
+    # The same per-host reading the full evaluator records, from the per-prefix
+    # positions already gathered above, given the same pooled coverage
+    # `compute_metrics` gives it, so the two evaluators agree on a one-host
+    # panel exactly. `worst_host_bg_coverage` is still dropped below:
+    # `max_host_coverage` routes to `compute_metrics`.
+    background = measure_background(
+        optimizer,
+        primers,
+        bg_by_prefix,
+        pooled_sites=total_bg,
+        pooled_coverage=bg_coverage,
+        pooled_density=selectivity_density,
+        effective_fg=effective_fg,
+        effective_bg=effective_bg,
+        selectivity_mode=mode,
+    )
+    reading = background.kwargs()
+    reading.pop("worst_host_bg_coverage")
+
     return PoolMetrics(
         fg_coverage=fg_coverage,
         effective_fg_coverage=effective_fg_coverage,
@@ -180,4 +217,5 @@ def compute_pool_metrics(optimizer, primers: list[str]) -> PoolMetrics:
         max_gap=max(gaps) if gaps else float("inf"),
         bg_coverage=bg_coverage,
         worst_target_coverage=target_coverage.worst,
+        **reading,
     )

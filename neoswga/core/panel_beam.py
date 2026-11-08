@@ -62,8 +62,24 @@ class BeamResult:
 
 
 def _bg_sites(objective, panel) -> float:
-    """Background load, or zero when the evaluator does not report one."""
-    return float(getattr(objective.metrics(panel), "total_bg_sites", 0) or 0)
+    """Background load for the RANKING, through the one dispatch.
+
+    `per_host_metrics.limit_figure`, so a beam under
+    `background_aggregate: worst-case` ranks on the same figure
+    `max_background_sites` is judged on rather than on the pooled sum. The two
+    differ by more than a constant, so ranking on one and accepting on the other
+    would order candidates by a quantity the acceptance path does not use.
+
+    An absent figure is `inf`, not zero. This key is minimised, so zero is the
+    most favourable value there is, and `getattr(..., 0) or 0` reported it for an
+    evaluator that carries no background load at all and for a worst case over
+    an unscanned host alike. Infinite ranks such a panel last, which is the only
+    honest answer when its host load is unknown.
+    """
+    from .per_host_metrics import limit_figure
+
+    value = limit_figure(objective.metrics(panel), "total_bg_sites")
+    return math.inf if value is None else float(value)
 
 
 def _rank(objective, panel):

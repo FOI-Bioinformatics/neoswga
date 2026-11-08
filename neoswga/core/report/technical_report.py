@@ -25,6 +25,7 @@ from neoswga.core.report.metrics import (
     amp_pred_is_available,
     collect_pipeline_metrics,
 )
+from neoswga.core.report.per_host_table import render_per_host_background
 from neoswga.core.report.quality import (
     GradeComponent,
     QualityAssessment,
@@ -1161,6 +1162,7 @@ def render_technical_report(data: TechnicalReportData, interactive: bool = False
             metrics.coverage.per_target_coverage if metrics.coverage else {},
             metrics.coverage.worst_target_coverage if metrics.coverage else None,
         ),
+        per_host_background_html=render_per_host_background(metrics.specificity),
         coverage_gaps_html=_render_coverage_gaps(metrics.coverage_gaps),
         strand_balance_html=_render_strand_balance(
             metrics.uniformity,

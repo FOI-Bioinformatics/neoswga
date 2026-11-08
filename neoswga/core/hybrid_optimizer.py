@@ -26,10 +26,12 @@ from dataclasses import replace as _dc_replace
 import networkx as nx
 import numpy as np
 
+from neoswga.core.background_aggregate import SUM
 from neoswga.core.coverage_counter import CoverageCounter
 from neoswga.core.dominating_set_optimizer import DominatingSetOptimizer
 from neoswga.core.hybrid_thermo_screen import ThermoScreenMixin
 from neoswga.core.network_optimizer import AmplificationNetwork, NetworkOptimizer
+from neoswga.core.per_host_metrics import host_site_charge
 from neoswga.core.registry import POLYMERASES as _POLYMERASES
 from neoswga.core.selection_weights import (
     OPTIMAL_TM_OFFSET_C,
@@ -150,6 +152,11 @@ class HybridOptimizer(ThermoScreenMixin):
     Expected improvement: 20-30% better amplification vs dominating-set alone
     while maintaining good coverage.
     """
+
+    #: The host term's reading of "the background"; see
+    #: `_count_background_sites`. `sum`, the key's own default, and the two
+    #: `BaseOptimizer` wrappers assign what the run resolved.
+    background_aggregate: str = SUM
 
     def __init__(
         self,
@@ -1377,18 +1384,27 @@ class HybridOptimizer(ThermoScreenMixin):
         return current_primers, final_coverage, final_bg_sites
 
     def _count_background_sites(self, primers: list[str]) -> int:
-        """Count total background binding sites for primer set."""
+        """The host load this run charges a panel, in site-count units.
+
+        Both background-aware stages rank on this. `host_site_charge` has one
+        reading, the pooled sum, and refuses `worst-case` with two or more hosts
+        rather than charging a magnitude `background_weight` is not calibrated
+        for; `per_host_metrics.refuse_uncalibrated_host_term` carries the
+        argument and the measurement that would settle it. The up-front refusal
+        is in `unified_optimizer`, so this raise is only reached by a route that
+        skipped the gate.
+        """
         if not primers or not self.bg_prefixes:
             return 0
 
-        total_sites = 0
+        per_host = {prefix: 0 for prefix in self.bg_prefixes}
         for primer in primers:
             for bg_prefix in self.bg_prefixes:
                 fwd = self.position_cache.get_positions(bg_prefix, primer, "forward")
                 rev = self.position_cache.get_positions(bg_prefix, primer, "reverse")
-                total_sites += len(fwd) + len(rev)
+                per_host[bg_prefix] += len(fwd) + len(rev)
 
-        return total_sites
+        return host_site_charge(per_host, self.bg_seq_lengths, self.background_aggregate)
 
 
 # =============================================================================
@@ -1511,6 +1527,9 @@ class HybridBaseOptimizer(BaseOptimizer):
         # hybrid run (Known Issue 8). docs/validation/2026-10-26-stage2-background-weight.md.
         for _weight in ("stage2_tm_weight", "stage2_background_weight"):
             setattr(self._hybrid, _weight, getattr(self.config, _weight, None))
+        # What BaseOptimizer resolved, so the host term charges under the same
+        # reading the metrics are measured under.
+        self._hybrid.background_aggregate = self.background_aggregate
 
     @property
     def name(self) -> str:

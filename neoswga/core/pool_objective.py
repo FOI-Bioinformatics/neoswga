@@ -35,6 +35,15 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from typing import Any
 
+# Which figure a limit is read against. Under `sum`, and for every limit that is
+# not background-measured, this is the plain attribute lookup `violations` and
+# `shortfall` always performed. Under `worst-case` the three background-measured
+# limits read their per-host reduction instead, so they bind per host with no
+# new limit key. One helper for both methods, because the whole point of this
+# class is that the search and the acceptance path cannot disagree about which
+# number a panel was held to.
+from .per_host_metrics import limit_figure
+
 # Sense of each limit.
 _AT_LEAST = "at_least"
 _AT_MOST = "at_most"
@@ -255,7 +264,7 @@ class PoolObjective:
             limit = getattr(self.constraints, field)
             if limit is None:
                 continue
-            if _unmet(getattr(metrics, metric, None), limit, sense):
+            if _unmet(limit_figure(metrics, metric), limit, sense):
                 reasons.append(message)
 
         return tuple(reasons)
@@ -300,7 +309,7 @@ class PoolObjective:
             limit = getattr(self.constraints, field)
             if limit is None:
                 continue
-            value = getattr(metrics, metric, None)
+            value = limit_figure(metrics, metric)
             if _unmet(value, limit, sense):
                 total += _distance(value, limit, sense)
 

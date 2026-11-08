@@ -85,6 +85,18 @@ WATCHED = (
     # under `worst-case`, which is off by default, so a default run would not
     # notice any of it becoming orphaned.
     "core/background_gate.py",
+    # Added 2026-10-02 (Phase 7c). Step 4's half of the same key: the per-host
+    # figures, the reduction a panel limit is read against, and the host charge
+    # the background-aware stages rank on. Reached from `compute_metrics`,
+    # `compute_pool_metrics`, `pool_objective` and
+    # `hybrid_optimizer._count_background_sites`. Same reason as the two above:
+    # the behaviour it adds is off by default, so a default run would not notice
+    # it becoming orphaned.
+    "core/per_host_metrics.py",
+    # The per-host table it feeds, for the same reason. `report` is reached only
+    # through `neoswga report`, so a renderer that stops being called renders
+    # nothing and says nothing.
+    "core/report/per_host_table.py",
     # Added 2026-10-02 with the enforced per-target floor. Two of its four
     # public names are not extractions: `require_per_target` is reached from
     # exactly one call site in `unified_optimizer` and `saturation_issues` from
@@ -93,6 +105,16 @@ WATCHED = (
     # six findings this file was written for.
     "core/target_coverage.py",
 )
+
+# `core/host_profile.py` is deliberately NOT here. Phase 7c wired
+# `background_aggregate` to the modelled-profile path it serves, which is what
+# Phase 7a deferred -- but adding the file would need three new
+# KNOWN_UNREACHABLE entries (`fit_profile`, `fit_profile_from_fasta`,
+# `recommended_order`: no command reaches any of them), and that list is empty
+# and meant to stay that way. The wiring buys nothing here either way:
+# `aggregate_loads` and `expected_site_load` are ALREADY reachable by this
+# walk's own definition, through `BaseOptimizer._modelled_site_load`. Growing an
+# allowlist to make a ratchet pass is the one thing this file must not do.
 
 # Public names no command can reach today, and why. Shrink this list.
 # `test_the_unreachable_list_has_no_stale_entries` fails on an entry that has
