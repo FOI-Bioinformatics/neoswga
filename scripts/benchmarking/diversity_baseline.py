@@ -712,7 +712,7 @@ def plan_host_scale_designs(panel, host_scale_key):
     return designs
 
 
-def design_params(design, panel, data_dir, cpus=None, retention=None):
+def design_params(design, panel, data_dir, cpus=None, retention=None, aggregate=None):
     genomes = panel["genomes"]
     # The second check on the one fact. `plan_designs` cannot produce such a
     # design, so reaching this means a caller built one by hand; parameters
@@ -736,6 +736,10 @@ def design_params(design, panel, data_dir, cpus=None, retention=None):
         if retention not in RETENTION_MODES:
             raise ValueError(f"candidate_retention must be one of {RETENTION_MODES}")
         params["candidate_retention"] = retention
+    if aggregate is not None:
+        # Written only by `--aggregate-control`, for the same reason as
+        # `candidate_retention` above: absent elsewhere, and in the digest.
+        params["background_aggregate"] = aggregate
     params["data_dir"] = data_dir
     for side in ("fg", "bg"):
         keys = design[side]
@@ -840,6 +844,7 @@ def build_pool(
     data_dir=None,
     retention=None,
     reuse_tables_for=(),
+    aggregate=None,
 ):
     """Steps 1 to 3 for one design, in its own data directory.
 
@@ -848,7 +853,7 @@ def build_pool(
     """
     data_dir = data_dir or os.path.join(workdir, "pools", design["id"])
     os.makedirs(data_dir, exist_ok=True)
-    params = design_params(design, panel, data_dir, cpus, retention)
+    params = design_params(design, panel, data_dir, cpus, retention, aggregate)
     linked = (
         link_counted_tables(design, data_dir, workdir, reuse_tables_for) if reuse_tables_for else {}
     )
@@ -2254,6 +2259,128 @@ def run_retention_control(args, panel, workdir, limits, output, c1_host):
     return 0
 
 
+AGGREGATE_MODES = ("sum", "worst-case")
+
+
+def run_aggregate_control(args, panel, workdir, limits, c1_host):
+    """Build one design under each `background_aggregate` reading and measure both.
+
+    Phase 7's measurement (plan, "Verification"): the same design, the same
+    sizes and the same code, once with the hosts pooled (`sum`) and once with
+    each host judged on its own length (`worst-case`). Both are built here from
+    `count-kmers` onward rather than one of them being read from the Phase 3
+    record, because the record was produced by an earlier version of the
+    optimizer and a difference against it would mix two changes.
+
+    Set 0 of each delivered design is evaluated against every target strain and
+    every host, the counts-only host included, with the occupancy-weighted
+    load, through the same `evaluate_panels` route the baseline used. Nothing is
+    decided here; the record is written to its own file and touches no recorded
+    design.
+    """
+    matches = [d for d in plan_designs(panel, c1_host) if d["id"] == args.aggregate_control]
+    if not matches:
+        raise ValueError(f"--aggregate-control: no design has the id {args.aggregate_control!r}")
+    design = matches[0]
+    if len(design["bg"]) < 2:
+        raise ValueError(
+            f"{design['id']!r} has {len(design['bg'])} host(s); with fewer than two "
+            "the two readings are identical by construction and there is nothing to measure."
+        )
+    output = os.path.join(workdir, "aggregate_control.json")
+    sizes = [int(size) for size in args.sizes.split(",")]
+    record = {
+        "script": os.path.relpath(os.path.abspath(__file__), REPO_ROOT),
+        "git_sha": subprocess.run(
+            ["git", "rev-parse", "HEAD"], capture_output=True, text=True, cwd=REPO_ROOT
+        ).stdout.strip(),
+        "design": design["id"],
+        "fg": design["fg"],
+        "bg": design["bg"],
+        "counts_only_hosts": list(panel.get("counts_only_hosts", ())),
+        "sizes_requested": sizes,
+        "design_parameters": DESIGN_PARAMS,
+        "started": time.strftime("%Y-%m-%dT%H:%M:%S"),
+        "modes": {},
+    }
+
+    def write():
+        record["written"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+        with open(output + ".tmp", "w") as handle:
+            json.dump(record, handle, indent=2)
+            handle.write("\n")
+        os.replace(output + ".tmp", output)
+
+    try:
+        for mode in AGGREGATE_MODES:
+            data_dir = os.path.join(workdir, f"pools_aggregate_{mode}", design["id"])
+            os.makedirs(os.path.dirname(data_dir), exist_ok=True)
+            block = {"data_dir": os.path.relpath(data_dir, REPO_ROOT), "sizes": []}
+            record["modes"][mode] = block
+            write()
+            _, params, steps, usable = build_pool(
+                design,
+                panel,
+                workdir,
+                limits,
+                args.retry,
+                DESIGN_PARAMS["cpus"],
+                data_dir,
+                aggregate=mode,
+            )
+            block["steps"] = steps
+            block["step2_candidates"] = csv_rows(os.path.join(data_dir, "step2_df.csv"))
+            block["step3_candidates"] = csv_rows(os.path.join(data_dir, "step3_df.csv"))
+            write()
+            if not usable:
+                block["outcome"] = "the candidate pool was not built; see steps"
+                write()
+                continue
+            plan = reference_plan(design, data_dir, panel, workdir, False)
+            references = [{k: v for k, v in ref.items() if k != "route"} for ref in plan]
+            block["references"] = [
+                {k: ref[k] for k in ("key", "role", "in_design", "held_out", "route")}
+                for ref in plan
+            ]
+            state = load_state(data_dir)
+            for size in sizes:
+                sized = run_optimize(design, data_dir, params, size, state, limits, args.retry)
+                row = {
+                    "requested_size": size,
+                    "outcome": sized["outcome"],
+                    "delivered_size": sized.get("delivered_size"),
+                    "delivered_primers": sized.get("delivered_primers"),
+                    "optimizer_summary": sized.get("optimizer_summary"),
+                    "design_failure": sized.get("design_failure"),
+                }
+                block["sizes"].append(row)
+                write()
+                if sized["outcome"] != "delivered":
+                    continue
+                set_dir = os.path.join(data_dir, "sets", f"n{size:02d}")
+                step, out = evaluate_panels(
+                    [{"label": "set_0", "primers": sized["delivered_primers"]}],
+                    references,
+                    True,
+                    os.path.join(set_dir, "aggregate_evaluation.json"),
+                    os.path.join(data_dir, "logs", f"aggregate_eval_n{size:02d}.log"),
+                    limits,
+                    f"{design['id']} {mode} n={size}",
+                )
+                row["evaluation_step"] = step
+                row["evaluation"] = (
+                    None if out is None else by_key(out["panels"][0]["assessment"], plan)
+                )
+                write()
+    except RunHalted as halted:
+        record["halted"] = str(halted)
+        write()
+        print(f"HALTED: {halted}", flush=True)
+        return EXIT_HALTED
+    print(f"Wrote {os.path.relpath(output, REPO_ROOT)}")
+    return 0
+
+
 def run_host_scale_pass(args, panel, workdir, limits, output):
     """The host-scale designs, appended to an existing results file.
 
@@ -2672,6 +2799,8 @@ def run(args):
         return describe_host_scale_plan(args, panel, workdir, limits)
     if args.retention_control:
         return run_retention_control(args, panel, workdir, limits, output, c1_host)
+    if args.aggregate_control:
+        return run_aggregate_control(args, panel, workdir, limits, c1_host)
     if args.host_scale_pass:
         return run_host_scale_pass(args, panel, workdir, limits, output)
     if args.counts_only_pass:
@@ -3326,6 +3455,12 @@ def main(argv=None):
         action="store_true",
         help="Print the tables of the validation record from an existing results "
         "file and exit. Reads; measures nothing.",
+    )
+    parser.add_argument(
+        "--aggregate-control",
+        help="Build this design under background_aggregate 'sum' and 'worst-case' in "
+        "their own directories, evaluate set 0 of each, and write "
+        "WORKDIR/aggregate_control.json. Phase 7's measurement.",
     )
     parser.add_argument("--c1-host", help="Host for the leave-one-out designs (default: largest).")
     parser.add_argument("--sizes", default=",".join(str(size) for size in DEFAULT_SIZES))

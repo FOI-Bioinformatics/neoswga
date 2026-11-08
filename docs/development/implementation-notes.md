@@ -1110,6 +1110,18 @@ so its weight keeps the calibration it was measured under and there is nothing
 to refuse. Under `worst-case` that axis and the per-host limits therefore read
 different figures, which is deliberate until a measurement says otherwise.
 
+**Measured on 2026-11-08** (`docs/validation/2026-11-08-background-aggregate-measured.md`).
+Phase 3's D3 design (wMel against *L. plantarum* and *Drosophila*) built under
+both readings on the same code, with no panel limits configured. The per-host
+step-2 gate removed 82,307 more candidates (11.6%), the shortlists after the
+`max_primer` cut shared 1,812 of 2,000, and the delivered panels were identical
+at 6 and 12 primers and differed by one primer at 24, moving each per-host and
+per-strain figure by a few percent in both directions. Step 4's
+`worst_host_selectivity_density` equalled the independent evaluator's weighted
+density against the smallest host at every size. One design, one pair of hosts:
+no benefit is demonstrated, so `sum` remains the default. The panel limits
+under `worst-case` were not exercised, because none has a reference threshold.
+
 **The modelled-profile path reads the key**, which is what 7a deferred.
 `_modelled_site_load` had `getattr(self, "background_aggregate", "worst-case")`
 shadowing a key whose default is `sum`; that second default is gone and the key
