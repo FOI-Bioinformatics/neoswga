@@ -1086,6 +1086,30 @@ per host, while one with 30 sites on a 1.29 Mb host charges 30 pooled and 31
 per host -- the two readings rank them in opposite orders, and the delivered
 panel changes and scores better on the worst host.
 
+**Withdrawn on 2026-11-07: that combination is now refused.** The ranking above
+holds and the magnitude does not. The per-host charge equals the pooled one
+multiplied by `sum(host lengths) / worst host length`: 44 on the test world, and
+1029, 24 or 1.05 on this project's three-host panel depending on which host is
+worst. `background_weight` (default 2.0) was chosen against pooled counts, so a
+weight tuned under `sum` would buy up to a thousand times more host avoidance
+under `worst-case`, paid for in coverage. No measurement establishes the weight
+under the per-host reading, so `background-aware` with `worst-case` and two or
+more hosts raises `InvalidDesignRequest`, at `run_optimization` before any
+optimizer is built, at the constructor, and in `host_site_charge`. An ensemble
+whose method list includes it, or which runs the default list, is refused the
+same way. Every other method honours the key, the per-host figures are still
+computed, and the limits still bind per host. With one host nothing is refused,
+because the two readings are identical. What would settle it is recorded on
+`per_host_metrics.refuse_uncalibrated_host_term`: Phase 3's D3 design rerun
+under `worst-case` across a range of `background_weight`.
+`tests/test_the_host_term_has_one_calibration.py`.
+
+`stage2_background_weight`, the swap refinement's host-coverage axis (#146),
+does not follow the key. It reads the POOLED `bg_coverage` under both readings,
+so its weight keeps the calibration it was measured under and there is nothing
+to refuse. Under `worst-case` that axis and the per-host limits therefore read
+different figures, which is deliberate until a measurement says otherwise.
+
 **The modelled-profile path reads the key**, which is what 7a deferred.
 `_modelled_site_load` had `getattr(self, "background_aggregate", "worst-case")`
 shadowing a key whose default is `sum`; that second default is gone and the key

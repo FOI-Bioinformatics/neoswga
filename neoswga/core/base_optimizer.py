@@ -1133,22 +1133,12 @@ class BaseOptimizer(ABC):
         if not primers:
             return PrimerSetMetrics.empty()
 
-        # Collect all positions. Kept per primer as well as pooled: the pooled
-        # list cannot say which primer put a site there, and occupancy is a
-        # per-primer property.
-        # Positions are kept PER PREFIX, because each prefix is a separate
-        # sequence with its own 0-based coordinate space. Pooling them into one
-        # flat list made position 5000 in target A and position 5000 in target B
-        # the same integer, so `set()` collapsed them, no position could exceed
-        # the longest single genome, and the denominator was the sum of them
-        # all. Two fully covered 100 kb targets reported fg_coverage 0.5145 and
-        # a max_gap of 102,000 bp on a 100,000 bp target.
-        #
-        # It is not only a reporting fault: `--minimize-primers` gates on
-        # `fg_coverage`, so a ceiling near 1/N put the 0.70 default out of reach
-        # and the trim quietly stopped working on multi-target runs.
-        fg_by_prefix = {prefix: set() for prefix in self.fg_prefixes}
-        bg_by_prefix = {prefix: set() for prefix in self.bg_prefixes}
+        # Positions are kept per primer (occupancy is a per-primer property)
+        # and PER PREFIX, because each prefix is a separate sequence with its
+        # own 0-based coordinates. Pooled into one flat list, position 5000 in
+        # target A and in target B collapsed under `set()`: two fully covered
+        # 100 kb targets reported fg_coverage 0.5145, and `--minimize-primers`,
+        # which gates on `fg_coverage`, stopped working on multi-target runs.
         fg_positions_by_primer = {prefix: {} for prefix in self.fg_prefixes}
         fg_rev_by_primer = {prefix: {} for prefix in self.fg_prefixes}
 

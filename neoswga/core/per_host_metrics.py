@@ -309,6 +309,10 @@ def refuse_uncalibrated_host_term(
     selection, and the per-host figures and the configured limits read
     `limit_figure`, which carries no weight to calibrate. With ONE host the two
     readings are integer-identical, so there is nothing to refuse and nothing is.
+
+    `run_optimization` calls this before any optimizer is built, because
+    `_dispatch_optimizer` converts a constructor exception into a failure
+    result, and a refusal must not become one.
     """
     from .exceptions import InvalidDesignRequest
 

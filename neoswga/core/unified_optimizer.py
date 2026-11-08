@@ -1080,14 +1080,9 @@ def run_optimization(
     kwargs["candidate_source"] = _candidate_source
     # Resolved once and passed EXPLICITLY; see `core/per_host_metrics.py`.
     kwargs["background_aggregate"] = resolve_background_aggregate()
-    # And refused where it would mis-scale a tuned weight. Here, before any
-    # optimizer is built, because `_dispatch_optimizer` converts a constructor
-    # exception into a failure result and a refusal must not become one.
+    aggregate, ensemble = kwargs["background_aggregate"], kwargs.get("ensemble_methods")
     refuse_uncalibrated_host_term(
-        method,
-        kwargs["background_aggregate"],
-        len(bg_prefixes or []),
-        ensemble_methods=kwargs.get("ensemble_methods"),
+        method, aggregate, len(bg_prefixes or []), ensemble_methods=ensemble
     )
     result, optimizer = _dispatch_optimizer(
         method,

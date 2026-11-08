@@ -617,6 +617,24 @@ def _render_gap_analysis(coverage):
         </div>"""
 
 
+def _enrichment_aggregate_label(metrics) -> str:
+    """Which reading of "the background" the enrichment figure is.
+
+    It is the POOLED density ratio under both readings, and saying so is the
+    point: the default view is the one most people read, and a design whose
+    limits bound on the worst host showed a pooled enrichment here with nothing
+    naming the difference. Empty under `sum`, so no existing summary gains a
+    label it does not need.
+    """
+    aggregate = getattr(metrics.specificity, "background_aggregate", None) or "sum"
+    if aggregate == "sum":
+        return ""
+    return (
+        ' <span class="coverage-badge">pooled hosts; limits judged per host '
+        f"(background_aggregate: {aggregate})</span>"
+    )
+
+
 def render_executive_summary(summary: ExecutiveSummary, interactive: bool = False) -> str:
     """
     Render executive summary to HTML.
@@ -649,20 +667,7 @@ def render_executive_summary(summary: ExecutiveSummary, interactive: bool = Fals
     from neoswga.core.base_optimizer import MAX_SELECTIVITY
 
     enrichment_display = "no bg binding" if enrichment >= MAX_SELECTIVITY else f"{enrichment:.0f}x"
-    # Which reading of "the background" this figure is. It is the POOLED density
-    # ratio under both readings, and saying so is the point: the default view is
-    # the one most people read, and a design whose limits bound on the worst host
-    # showed a pooled enrichment here with nothing naming the difference. Empty
-    # under `sum`, so no existing summary gains a label it does not need.
-    _aggregate = getattr(metrics.specificity, "background_aggregate", None) or "sum"
-    enrichment_aggregate_label = (
-        ""
-        if _aggregate == "sum"
-        else (
-            ' <span class="coverage-badge">pooled hosts; limits judged per host '
-            f"(background_aggregate: {_aggregate})</span>"
-        )
-    )
+    enrichment_aggregate_label = _enrichment_aggregate_label(metrics)
     uniformity = uniformity_comp.raw_value if uniformity_comp else 0.5
     dimer_risk = dimer_comp.raw_value if dimer_comp else 0
 

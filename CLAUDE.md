@@ -247,6 +247,8 @@ measurements: implementation-notes.md.
   `max_background_sites` and `max_host_coverage` then bind per host with no new
   limit key. The pooled figures stay pooled under both readings; the reduction
   is reported as `worst_host_*` beside `per_host`.
+  `background-aware` with `worst-case` and two or more hosts is refused: its
+  host-term weight was calibrated on pooled counts (`refuse_uncalibrated_host_term`).
   `core/background_aggregate.py` is the one place it resolves.
 - **Panel limits**, all unset by default and params.json only:
   `min_selectivity_density`, `max_background_sites`, `max_worst_hole`,

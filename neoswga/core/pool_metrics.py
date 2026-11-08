@@ -89,8 +89,6 @@ class PoolMetrics:
     # `worst_host_bg_coverage` is deliberately absent: `max_host_coverage`
     # routes to the full evaluator (`panel_refinement.objective_for_optimizer`),
     # and a limit this object cannot answer for reads `None` and is refused.
-    # The pooled `bg_coverage` above joined on main after this was written; the
-    # per-host reading does not use it yet.
     background_aggregate: str = "sum"
     per_host: dict[str, dict] = field(default_factory=dict)
     worst_host: str | None = None
@@ -193,16 +191,16 @@ def compute_pool_metrics(optimizer, primers: list[str]) -> PoolMetrics:
         gaps.extend(optimizer._compute_gaps(fg_by_prefix.get(prefix, []), length))
 
     # The same per-host reading the full evaluator records, from the per-prefix
-    # positions already gathered above. The pooled coverage is passed as None,
-    # so no worst-host coverage is reduced here although `bg_coverage` is now
-    # computed above; `max_host_coverage` routes to `compute_metrics`, which
-    # has both.
+    # positions already gathered above, given the same pooled coverage
+    # `compute_metrics` gives it, so the two evaluators agree on a one-host
+    # panel exactly. `worst_host_bg_coverage` is still dropped below:
+    # `max_host_coverage` routes to `compute_metrics`.
     background = measure_background(
         optimizer,
         primers,
         bg_by_prefix,
         pooled_sites=total_bg,
-        pooled_coverage=None,
+        pooled_coverage=bg_coverage,
         pooled_density=selectivity_density,
         effective_fg=effective_fg,
         effective_bg=effective_bg,
