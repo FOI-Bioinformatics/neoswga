@@ -1172,3 +1172,20 @@ def resolve_seed(args):
     except (OSError, ValueError, AttributeError):
         return None
     return int(value) if isinstance(value, int) and not isinstance(value, bool) else None
+
+
+def positive_int(text):
+    """argparse type: an integer of at least 1.
+
+    `-n 0` read as "no flag" and `-n -3` reached the parameter module; the
+    params-file path already refused a size below 1.
+    """
+    import argparse
+
+    try:
+        value = int(text)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"not an integer: {text!r}") from None
+    if value < 1:
+        raise argparse.ArgumentTypeError(f"must be a positive integer, got {value}")
+    return value

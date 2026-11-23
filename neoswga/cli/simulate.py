@@ -9,7 +9,7 @@ import logging
 import os
 import sys
 
-from neoswga.cli._common import _apply_seed
+from neoswga.cli._common import _apply_seed, positive_int
 from neoswga.core.registry import polymerase_names as _polymerase_names
 
 logger = logging.getLogger(__name__)
@@ -359,7 +359,10 @@ def add_parsers(subparsers):
         "--seed", type=int, default=None, help="Random seed for reproducible design."
     )
     multi_genome_parser.add_argument(
-        "--num-primers", type=int, default=12, help="Number of primers to design (default: 12)"
+        "--num-primers",
+        type=positive_int,
+        default=12,
+        help="Number of primers to design (default: 12)",
     )
     multi_genome_parser.add_argument(
         "--min-k", type=int, default=8, help="Minimum primer length (default: 8)"
