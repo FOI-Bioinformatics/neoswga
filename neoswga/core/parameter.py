@@ -797,6 +797,13 @@ def _value_or(arg_value, data, key, default):
     return default if value is None else value
 
 
+#: Absent keys that take `PipelineParameters`' default. `min_tm`/`max_tm` are
+#: not here: their default depends on the polymerase and is applied later.
+_DOCUMENTED_DEFAULT_KEYS = frozenset(
+    {"min_fg_freq", "max_bg_freq", "max_gini", "max_primer", "max_sets", "iterations", "cpus"}
+)
+
+
 def get_value_or_default(arg_value, data, key):
     """
     Helper function for getting the input values. If a command line argument value was given, just return arg_value.
@@ -830,6 +837,16 @@ def get_value_or_default(arg_value, data, key):
         return arg_value
     if key in data:
         return data[key]
+    if key in _DOCUMENTED_DEFAULT_KEYS:
+        # Returned None until 2026-11-23: a minimal params.json crashed `filter`
+        # on the frequency gates, and `max_sets`/`iterations` fell to their
+        # readers' own fallbacks (1 set, 100 iterations) while the request hash
+        # recorded 5 and 8. `PipelineParameters` is the one statement of these.
+        from neoswga.core.parameter_config import PipelineParameters
+
+        value = PipelineParameters.__dataclass_fields__[key].default
+        logger.info("'%s' not set in params.json; using the default %s.", key, value)
+        return value
     else:
         # An absent OPTIONAL_PARAMS key is not news: every one of the twelve has
         # a documented, static default. Seven are absent from the shipped
