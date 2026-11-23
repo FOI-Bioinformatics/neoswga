@@ -298,10 +298,8 @@ def _run_ensemble(
 
     winner = results[best_method]
 
-    # Union-combine: pool the (diverse) primers every method selected and
-    # re-optimize the winning method on that small pool. Other methods often
-    # found primers covering regions the winner missed; re-optimizing over the
-    # union can beat any single method. Guarded to NEVER worsen the winner.
+    # Union-combine: re-optimize the winning method over every method's primers,
+    # which can cover what the winner missed. Guarded never to worsen the winner.
     if combine == "union" and len(results) > 1:
         union_pool = list(dict.fromkeys(p for r in results.values() for p in r.primers))
         if len(union_pool) > target_size:
@@ -366,6 +364,8 @@ def _run_ensemble(
                             f"Ensemble union-combine improved the set "
                             f"(normalized_score {w_norm:.4f} -> {c_norm:.4f})"
                         )
+            except DesignError:
+                raise  # as for the members above
             except Exception as e:
                 logger.warning(f"  ensemble union-combine skipped: {e}")
 

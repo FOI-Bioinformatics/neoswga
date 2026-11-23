@@ -1443,6 +1443,7 @@ from neoswga.core.base_optimizer import (
     OptimizerConfig,
     PrimerSetMetrics,
 )
+from neoswga.core.exceptions import DesignError
 from neoswga.core.optimizer_factory import OptimizerFactory
 
 
@@ -1553,6 +1554,11 @@ class NetworkBaseOptimizer(BaseOptimizer):
                 optimizer_name=self.name,
             )
 
+        except DesignError:
+            # A missing reference answer or a failed model evaluation is not
+            # this method losing; returning a failure result let an ensemble
+            # deliver another method's panel built on the same data.
+            raise
         except Exception as e:
             logger.error(f"Network optimization failed: {e}")
             return OptimizationResult.failure(self.name, str(e))

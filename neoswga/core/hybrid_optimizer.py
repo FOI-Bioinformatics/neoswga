@@ -1418,6 +1418,7 @@ from neoswga.core.base_optimizer import (
     OptimizerConfig,
     PrimerSetMetrics,
 )
+from neoswga.core.exceptions import DesignError
 from neoswga.core.optimizer_factory import OptimizerFactory
 from neoswga.core.swap_refinement import attach_search_config, stage1_objective
 
@@ -1605,6 +1606,11 @@ class HybridBaseOptimizer(BaseOptimizer):
                 message=self._coverage_message(result.final_coverage, result.final_connectivity),
             )
 
+        except DesignError:
+            # A missing reference answer or a failed model evaluation is not
+            # this method losing; returning a failure result let an ensemble
+            # deliver another method's panel built on the same data.
+            raise
         except Exception as e:
             logger.error(f"Hybrid optimization failed: {e}")
             return OptimizationResult.failure(self.name, str(e))

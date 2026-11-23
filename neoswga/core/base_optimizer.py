@@ -29,6 +29,7 @@ from . import per_host_metrics
 # that it calls, and `base_optimizer` was at its size ceiling. Importers keep
 # working and there is still one implementation.
 from .coverage import union_coverage as _union_coverage  # noqa: F401
+from .exceptions import DesignError
 
 # Same reason again: the normalised score and its application-weight presets
 # moved to `panel_score` when the per-host background figures brought this
@@ -1570,6 +1571,8 @@ class CompositeOptimizer(BaseOptimizer):
                 if best_result is None or norm > best_norm:
                     best_result = result
                     best_norm = norm
+            except DesignError:
+                raise  # the data, not the member, failed
             except Exception as e:
                 logger.warning(f"Optimizer {optimizer.name} failed: {e}")
 
