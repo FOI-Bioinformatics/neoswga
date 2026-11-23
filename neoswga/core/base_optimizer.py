@@ -29,13 +29,14 @@ from . import per_host_metrics
 # that it calls, and `base_optimizer` was at its size ceiling. Importers keep
 # working and there is still one implementation.
 from .coverage import union_coverage as _union_coverage  # noqa: F401
-from .exceptions import DesignError
+from .exceptions import DesignError, ReferenceDataError
 
 # Same reason again: the normalised score and its application-weight presets
 # moved to `panel_score` when the per-host background figures brought this
 # module back to its ceiling. `APPLICATION_WEIGHTS` is re-exported under the
 # name it had here.
 from .panel_score import APPLICATION_WEIGHTS, normalized_panel_score  # noqa: F401
+from .position_cache import MissingPositionsError
 
 # Re-exported for the same reason and in the same shape: the selectivity
 # arithmetic moved to `selectivity` when this module reached its size ceiling.
@@ -961,17 +962,21 @@ class BaseOptimizer(ABC):
             strand: 'forward', 'reverse', or 'both'
 
         Returns:
-            Array of binding positions (empty array if cache unavailable)
-        """
-        if self.cache is None:
-            logger.warning("Position cache not available")
-            return np.array([], dtype=np.int64)
+            Array of binding positions. Empty means the index records no site.
 
+        Raises:
+            ReferenceDataError: no cache, a prefix never indexed, or an index
+                that cannot be read. These returned an empty array until
+                2026-11-23, which read as zero sites: an unindexed background
+                looked perfectly specific (Known Issue 13).
+        """
+        remedy = "Re-run 'neoswga filter -j params.json' to rebuild the position index."
+        if self.cache is None:
+            raise ReferenceDataError(prefix, "no position cache is attached", remedy)
         try:
             return self.cache.get_positions(prefix, primer, strand)
-        except Exception as e:
-            logger.warning(f"Failed to get positions for {primer}: {e}")
-            return np.array([], dtype=np.int64)
+        except (MissingPositionsError, OSError, KeyError) as e:
+            raise ReferenceDataError(prefix, f"no answer for {primer}: {e}", remedy) from e
 
     def _effective_site_load(self, primers) -> tuple[float, float, str]:
         """Occupancy-weighted binding load for the foreground and background.
