@@ -32,6 +32,20 @@ being fixed. Tiers 2 and 3 are listed at the end and are not addressed here.
 | 11 | `export` and `report` took conditions from the latest manifest entry of any step | the `optimize` entry | `tests/test_export_conditions_from_optimize_step.py` |
 | 12 | `hybrid`, `background-aware`, `network`, the composite member loop and the ensemble union-combine turned a `DesignError` into a failure result | re-raised | `tests/test_optimizers_propagate_design_errors.py` |
 
+## Final review
+
+A fresh review of the branch found two defects in the new record rules, fixed
+before merge with tests in `tests/test_failure_records_name_the_step.py`:
+
+- A record naming `design` (written before records named steps, or by a
+  `design` refused before any step ran) or an unreadable record blocked
+  `prepare-candidates` and `optimize` and nothing could clear it. A `design`
+  that ran no step now writes none, and `count-kmers` success clears both.
+- The checks resolved `data_dir` against the params file's directory and the
+  run resolves it against the working directory, so with a params file in
+  another directory the check read the wrong one; and `--data-dir`, which the
+  steps ignore, placed the record. Both now use the run's resolution.
+
 ## Behaviour that changes for a user
 
 - A params file without `max_sets` now receives up to five alternative sets,

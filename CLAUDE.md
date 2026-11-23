@@ -85,8 +85,8 @@ Files in `data_dir`:
 - `run_manifest.json`: one entry per step. `effective_conditions` is the
   reaction the step ran under, which can differ from params.json.
 - `design_failure.json`: written when any design step fails, naming the step;
-  `export`, `interpret` and `report` refuse while it is present, and a later
-  step refuses after an earlier step's record (2026-11-23).
+  `export` refuses and `interpret`/`report` say not to order while it is
+  present, and a later step refuses after an earlier step's record (2026-11-23).
 
 ## CLI Commands
 

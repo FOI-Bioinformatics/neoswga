@@ -166,3 +166,73 @@ def test_design_from_optimize_refuses_after_a_failed_filter(workspace, monkeypat
     assert _main(monkeypatch, "design", "-j", "params.json", "--start-from", "4") == 1
     assert ran == []
     assert _record(workspace)["stage"] == "filter", "the upstream record was overwritten"
+
+
+# --- Final-review fixes (2026-11-23): records nothing can clear, and the
+# --- directory the checks read against the directory the run uses.
+
+
+def test_design_that_runs_no_step_writes_no_record(workspace, monkeypatch):
+    from neoswga.cli import commands
+
+    monkeypatch.setattr(commands, "check_kmer_counter_available", lambda *a, **k: None)
+    assert _main(monkeypatch, "design", "-j", "params.json", "--start-from", "4", "--stop-at", "3") == 1
+    assert _record(workspace) is None
+
+
+def test_design_without_a_counter_writes_no_record(workspace, monkeypatch):
+    from neoswga.cli import commands
+
+    def _missing(*_a, **_k):
+        sys.exit(1)
+
+    monkeypatch.setattr(commands, "check_kmer_counter_available", _missing)
+    assert _main(monkeypatch, "design", "-j", "params.json") == 1
+    assert _record(workspace) is None
+
+
+@pytest.mark.parametrize("content", ['{"run_state": "failed", "stage": "design"}', "not json"])
+def test_count_kmers_success_clears_a_record_no_step_owns(workspace, monkeypatch, content):
+    (workspace / "design_failure.json").write_text(content)
+    monkeypatch.setattr(cli_unified, "run_step1", lambda args: None)
+    _main_ok(monkeypatch, "count-kmers", "-j", "params.json")
+    assert not (workspace / "design_failure.json").exists()
+
+
+def test_a_design_rerun_recovers_from_a_legacy_design_record(workspace, monkeypatch):
+    from neoswga.cli import commands
+
+    monkeypatch.setattr(commands, "check_kmer_counter_available", lambda *a, **k: None)
+    ran = []
+    for name in ("run_step1", "run_step2", "run_step3", "run_step4"):
+        monkeypatch.setattr(commands, name, lambda args, n=name: ran.append(n))
+    _write_record(workspace, "design")
+    _main_ok(monkeypatch, "design", "-j", "params.json")
+    assert ran == ["run_step1", "run_step2", "run_step3", "run_step4"]
+
+
+def test_checks_read_the_directory_the_run_uses(tmp_path, monkeypatch):
+    """data_dir is resolved against the working directory, as `get_params` does,
+    not against the params file's directory."""
+    (tmp_path / "cfg").mkdir()
+    (tmp_path / "cfg" / "params.json").write_text(json.dumps({"data_dir": "results"}))
+    (tmp_path / "results").mkdir()
+    _write_record(tmp_path / "results", "filter")
+    monkeypatch.chdir(tmp_path)
+    from neoswga.core import parameter
+
+    monkeypatch.setattr(parameter, "data_dir", None, raising=False)
+    ran = []
+    monkeypatch.setattr(cli_unified, "run_step4", lambda args: ran.append(1))
+    assert _main(monkeypatch, "optimize", "-j", "cfg/params.json") == 1
+    assert ran == []
+
+
+def test_a_record_goes_to_the_run_directory_not_data_dir_flag(workspace, monkeypatch):
+    def _exits(args):
+        sys.exit(1)
+
+    monkeypatch.setattr(cli_unified, "run_step4", _exits)
+    _main(monkeypatch, "optimize", "-j", "params.json", "-z", "elsewhere")
+    assert _record(workspace) is not None
+    assert not (workspace.parent / "elsewhere" / "design_failure.json").exists()

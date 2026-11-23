@@ -79,7 +79,11 @@ def upstream_failure(directory, step):
         with open(path) as handle:
             stage = json.load(handle).get("stage")
     except (OSError, ValueError, AttributeError):
-        return f"{path} exists and cannot be read; re-run the design from its first failed step."
+        return (
+            f"{path} exists and cannot be read. Re-run the design from its first "
+            f"step (`neoswga design -j params.json`), which clears it, or delete it "
+            f"if you know it is stale."
+        )
     order = {name: i for i, name in enumerate(PIPELINE_STEPS)}
     if stage == "design":
         stage_index = 0
@@ -88,9 +92,10 @@ def upstream_failure(directory, step):
     else:
         return None
     if stage_index < order[step]:
+        rerun = "count-kmers` (or `neoswga design" if stage == "design" else stage
         return (
             f"The last `{stage}` run in this directory failed ({path}), so the input "
-            f"to `{step}` is from an earlier run. Re-run `neoswga {stage}` first."
+            f"to `{step}` is from an earlier run. Re-run `neoswga {rerun}` first."
         )
     return None
 
@@ -189,24 +194,48 @@ def _data_dir_from_params_file(json_file):
     return os.path.join(os.path.dirname(os.path.abspath(json_file)), directory)
 
 
-def _pipeline_directory(json_file):
-    """The directory a design step writes to: the resolved run, else the params file.
+def _pipeline_directory(json_file, fallback=None):
+    """The directory a design step writes to.
 
-    Not `--data-dir`: the design steps take their directory from params.json
-    and ignore that flag, so a record placed by it would sit where nothing
-    reads it.
+    The params file first, resolved as `parameter._resolve_data_dir` resolves
+    it: against the working directory, not the file's own. The steps read their
+    directory from params.json alone (`pipeline._initialize` passes an empty
+    options object, so `--data-dir` never reaches them), and resolving against
+    the file's directory made these checks read a different directory from the
+    run's. Then `fallback`, for a caller with no params file, and last the
+    `parameter` global, which can be left over from an earlier run in the same
+    process and so is never preferred to either.
     """
+    if json_file:
+        try:
+            with open(json_file) as handle:
+                value = json.load(handle).get("data_dir")
+        except (OSError, ValueError, AttributeError):
+            value = None
+        if isinstance(value, str) and value:
+            return os.path.abspath(value)
+    if fallback:
+        return fallback
     try:
         from neoswga.core import parameter
 
-        directory = getattr(parameter, "data_dir", None)
+        return getattr(parameter, "data_dir", None) or None
     except ImportError:  # pragma: no cover - the package is always importable
-        directory = None
-    return directory or _data_dir_from_params_file(json_file)
+        return None
 
 
 def _failure_artifact_path(args):
-    directory = _resolve_directory(args)
+    if getattr(args, "command", None) in PIPELINE_COMMANDS:
+        # The directory the run writes to. `--data-dir` is accepted by these
+        # commands and ignored by them, so a record placed by it sat where
+        # neither `export` nor the upstream check looks.
+        # `--data-dir` only when neither names one: a caller that built its
+        # own namespace with no params file.
+        directory = _pipeline_directory(
+            getattr(args, "json_file", None), fallback=getattr(args, "data_dir", None)
+        )
+    else:
+        directory = _resolve_directory(args)
     if not directory:
         return None
     try:
@@ -273,6 +302,12 @@ def write_failure_artifact(args, error, run_state=RunState.FAILED):
     A report-only command writes none: see `REPORT_ONLY_COMMANDS`.
     """
     if getattr(args, "command", None) in REPORT_ONLY_COMMANDS:
+        return None
+    if getattr(args, "command", None) == "design" and not getattr(args, "current_step", None):
+        # Refused before any step ran (no k-mer counter, --start-from past
+        # --stop-at): the directory is unchanged, and a record naming no step
+        # would block `prepare-candidates` and `optimize` with nothing able to
+        # clear it.
         return None
     path = _failure_artifact_path(args)
     if path is None:
@@ -345,14 +380,20 @@ def clear_failure_artifact(directory, stage=None):
     if stage is not None:
         # Only a record this step wrote. A step succeeding says nothing about
         # a later step that failed, nor about an earlier one it should have
-        # refused to run after.
+        # refused to run after. The first step also clears a record no step
+        # owns -- one naming `design` from before records named steps, or one
+        # that cannot be read -- since the whole pipeline is then re-run from
+        # its start; otherwise nothing could ever clear those.
         try:
             with open(path) as handle:
-                if json.load(handle).get("stage") != stage:
-                    return
+                recorded = json.load(handle).get("stage")
         except FileNotFoundError:
             return
         except (OSError, ValueError, AttributeError):
+            recorded = None
+            if stage != PIPELINE_STEPS[0]:
+                return
+        if recorded != stage and not (stage == PIPELINE_STEPS[0] and recorded in (None, "design")):
             return
     try:
         os.remove(path)
