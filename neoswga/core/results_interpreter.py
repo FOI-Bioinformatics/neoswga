@@ -505,7 +505,6 @@ class ResultsInterpreter:
             import json
 
             from neoswga.core.mechanistic_model import MechanisticModel
-            from neoswga.core.reaction_conditions import ReactionConditions
         except ImportError:
             return None
 
@@ -523,20 +522,17 @@ class ResultsInterpreter:
         except (OSError, json.JSONDecodeError):
             return None
 
-        # Build reaction conditions
-        polymerase = params.get("polymerase", "phi29")
-        try:
-            conditions = ReactionConditions(
-                temp=params.get("reaction_temp", 30.0),
-                polymerase=polymerase,
-                na_conc=params.get("na_conc", 50.0),
-                mg_conc=params.get("mg_conc", 2.5),
-                dmso_percent=params.get("dmso_percent", 0.0),
-                betaine_m=params.get("betaine_m", 0.0),
-                trehalose_m=params.get("trehalose_m", 0.0),
-            )
-        except Exception:
+        # The reaction the report reconstructs: the recorded optimize-step
+        # conditions over params.json, every additive and buffer component, and
+        # the polymerase's own Mg2+ default. This built its own with 50 mM Na+
+        # and 2.5 mM Mg2+ substituted and the run manifest unread until
+        # 2026-11-24.
+        from neoswga.core.report.metrics import _conditions_from_params
+
+        conditions = _conditions_from_params(params, self.results_dir)
+        if conditions is None:
             return None
+        polymerase = conditions.polymerase
 
         # Get template GC
         template_gc = params.get("fg_gc", 0.5)

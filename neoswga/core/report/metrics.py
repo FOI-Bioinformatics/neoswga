@@ -991,6 +991,10 @@ def _conditions_from_params(params: dict[str, Any], results_path: Path | None = 
 
     polymerase = str(params.get("polymerase", "phi29"))
     additives = {name: params[name] for name in _CONDITION_ADDITIVES if params.get(name)}
+    # The recorded buffer too; dropped until 2026-11-24 (see export.BUFFER_KEYS).
+    from neoswga.core.export import BUFFER_KEYS
+
+    additives.update({k: params[k] for k in BUFFER_KEYS if params.get(k) is not None})
     try:
         return ReactionConditions(
             temp=_safe_float(
