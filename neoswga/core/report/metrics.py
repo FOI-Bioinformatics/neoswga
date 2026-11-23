@@ -453,6 +453,10 @@ class PipelineMetrics:
     # blacklist_primer_in_set, duplicate-primer, etc. warnings.
     validation_issues: list[dict[str, str]] = field(default_factory=list)
     validation_ok: bool = True
+    # Why `export` would refuse this directory (`export.export_is_blocked`), or
+    # None. The grade's recommendation defers to it, so the report cannot say
+    # "proceed" about a panel `export` will not write.
+    blocked_reason: str | None = None
 
 
 def _load_csv(filepath: Path) -> list[dict[str, str]]:
@@ -661,8 +665,16 @@ def _load_validation_report(results_path: Path) -> tuple:
         with open(report_file, encoding="utf-8") as f:
             data = json.load(f)
     except (json.JSONDecodeError, OSError) as e:
+        # An unreadable verdict is not a passing one; `export` and `interpret`
+        # both block on it, and this returned "ok" until 2026-11-23.
         logger.warning(f"Failed to load validation report: {e}")
-        return [], True
+        return [
+            {
+                "level": "error",
+                "code": "validation_report_unreadable",
+                "detail": f"{report_file.name} exists and cannot be read: {e}",
+            }
+        ], False
     issues = data.get("issues", []) if isinstance(data, dict) else []
     ok = bool(data.get("ok", True)) if isinstance(data, dict) else True
     _ASSESSMENT_CACHE[report_file] = data.get("assessment") if isinstance(data, dict) else None
@@ -1324,6 +1336,9 @@ def collect_pipeline_metrics(results_dir: str) -> PipelineMetrics:
     # set_size_mismatch, duplicate_primers, ...) that the optimizer
     # writes to JSON.
     metrics.validation_issues, metrics.validation_ok = _load_validation_report(results_path)
+    from neoswga.core.export import export_is_blocked
+
+    metrics.blocked_reason = export_is_blocked(str(results_path), 0)
 
     # Try to load filtering stats if available
     filter_stats_file = results_path / "filter_stats.json"

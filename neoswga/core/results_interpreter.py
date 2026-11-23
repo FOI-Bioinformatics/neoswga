@@ -251,6 +251,22 @@ class ResultsInterpreter:
             for issue in payload.get("issues", []) or []
         )
 
+    def _synthesis_block_reason(self) -> str | None:
+        """Why this set must not be called ready, or None.
+
+        The gate `export` applies, first: a failure record from the last run,
+        an unassessed alternative set, or a validator defect. This command read
+        only the last of the three until 2026-11-23, so it called a set ready
+        that `export` refused to write. `_blocks_synthesis` stays as the
+        fallback for a validator record `export` does not consult.
+        """
+        from neoswga.core.export import export_is_blocked
+
+        reason = export_is_blocked(str(self.results_dir), self.set_index or 0)
+        if reason is None and self._blocks_synthesis():
+            reason = "The optimizer recorded findings about this set that have to be resolved first."
+        return reason
+
     def analyze(self) -> ResultsReport:
         """
         Analyze pipeline results and generate report.
@@ -580,10 +596,10 @@ class ResultsInterpreter:
         # composite rating. Telling someone to order oligos that break the
         # threshold they configured is the one verdict this command must not
         # give, and it used to give it.
-        if self._blocks_synthesis():
+        block_reason = self._synthesis_block_reason()
+        if block_reason:
             return (
-                "Not ready for synthesis. The optimizer recorded findings about "
-                "this set that have to be resolved first.",
+                f"Not ready for synthesis. {block_reason}",
                 [
                     "Read the findings above and fix what they name",
                     "For a dimerising pair, re-run with "

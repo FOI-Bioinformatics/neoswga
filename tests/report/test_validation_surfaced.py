@@ -72,11 +72,15 @@ def test_load_validation_report_parses_issues(tmp_path):
 
 
 def test_load_validation_report_handles_malformed(tmp_path):
-    """Malformed JSON must not crash report generation."""
+    """Malformed JSON must not crash report generation, and must not pass.
+
+    It returned ``([], True)`` until 2026-11-23: an unreadable verdict read as
+    a clean one, while `export` and `interpret` block on the same file.
+    """
     (tmp_path / "step4_improved_df_validation.json").write_text("{not json")
     issues, ok = _load_validation_report(tmp_path)
-    assert issues == []
-    assert ok is True  # best-effort: treat unreadable as no-issues
+    assert ok is False
+    assert [issue["code"] for issue in issues] == ["validation_report_unreadable"]
 
 
 def test_executive_summary_without_issues_has_no_banner():
