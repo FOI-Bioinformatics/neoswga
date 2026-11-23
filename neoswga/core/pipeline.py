@@ -1172,7 +1172,18 @@ def _write_step2_table(filtered_gini_df, data_dir: str) -> None:
     shape -- an unnamed positional index -- is unchanged, because
     `pipeline_qa_integration` reads it back to write the same shape.
     """
-    filtered_gini_df.reset_index(drop=True).to_csv(os.path.join(data_dir, "step2_df.csv"))
+    from neoswga.core.atomic_output import atomic_write_dataframe
+
+    # Atomic: a run stopped mid-write left a short file that still parsed.
+    frame = filtered_gini_df.reset_index(drop=True)
+    atomic_write_dataframe(os.path.join(data_dir, "step2_df.csv"), frame)
+
+
+def _write_step3_table(joined_step3_df, data_dir: str) -> None:
+    """Write step3_df.csv atomically, as `_write_step2_table` writes step 2."""
+    from neoswga.core.atomic_output import atomic_write_dataframe
+
+    atomic_write_dataframe(os.path.join(data_dir, "step3_df.csv"), joined_step3_df)
 
 
 def step2(all_primers=None, validate_prerequisites=True):
@@ -1550,7 +1561,7 @@ def step3(validate_prerequisites=True):
         joined_step3_df = _candidate_carry_columns(step2_df)
 
     joined_step3_df = order_step3_rows(joined_step3_df)
-    joined_step3_df.to_csv(os.path.join(parameter.data_dir, "step3_df.csv"))
+    _write_step3_table(joined_step3_df, parameter.data_dir)
     from neoswga.core.candidate_inventory import record_stage3_from_frames
 
     record_stage3_from_frames(
