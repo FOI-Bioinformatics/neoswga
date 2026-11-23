@@ -218,6 +218,43 @@ def _sweep_over_grid(
     return sweep
 
 
+#: The methods `plan-pool --method` accepts.
+_PLAN_POOL_METHODS = ("dominating-set", "hybrid", "background-aware", "clique")
+
+
+def _resolve_plan_options(args, params, has_background):
+    """(primer length, coverage metric, method): a flag, else params.json.
+
+    The three flags carried real defaults (12, "effective", and a fall-through
+    to background-aware or hybrid), so the params file's k range,
+    `coverage_metric` and `optimization_method` never applied: the Known
+    Issue 8 shape, fixed 2026-11-23. `plan-pool` designs at one length, so a
+    k range spanning several needs `--primer-length` and is refused without it.
+    """
+    from neoswga.core.registry.views import primer_length_ranges
+
+    length = args.primer_length
+    if length is None:
+        polymerase = str(params.get("polymerase") or "phi29")
+        low, high = primer_length_ranges().get(polymerase, (6, 12))
+        low, high = int(params.get("min_k", low)), int(params.get("max_k", high))
+        if low != high:
+            raise ValueError(
+                f"plan-pool designs at one primer length and params.json allows "
+                f"{low}-{high}; pass --primer-length, or set min_k equal to max_k."
+            )
+        length = low
+    metric = args.coverage_metric or params.get("coverage_metric") or "effective"
+    method = args.method
+    if method is None:
+        configured = params.get("optimization_method")
+        usable = configured in _PLAN_POOL_METHODS and (
+            configured != "background-aware" or has_background
+        )
+        method = configured if usable else ("background-aware" if has_background else "hybrid")
+    return int(length), metric, method
+
+
 def run_plan_pool(args):
     import pandas as pd
 
@@ -252,6 +289,9 @@ def run_plan_pool(args):
     )
     if not bg and not args.no_background:
         raise ValueError("Supply background indexes or explicitly use --no-background")
+    args.primer_length, args.coverage_metric, args.method = _resolve_plan_options(
+        args, params, has_background=bool(bg)
+    )
     pool_path = (
         Path(args.candidates).resolve()
         if args.candidates
@@ -388,11 +428,21 @@ def add_parsers(subparsers):
     p.add_argument("-j", "--json-file", required=True)
     p.add_argument("--candidates", help="Candidate CSV (default: data_dir/step3_df.csv)")
     p.add_argument("--title", help="Title for the saved report")
-    p.add_argument("--primer-length", type=int, default=12)
+    p.add_argument(
+        "--primer-length",
+        type=int,
+        default=None,
+        help="Primer length (default: params.json's min_k when it equals max_k)",
+    )
     p.add_argument("--min-size", type=int, default=1)
     p.add_argument("--max-size", type=int, default=24)
     p.add_argument("--coverage-targets", type=float, nargs="+", default=[0.9, 0.95])
-    p.add_argument("--coverage-metric", choices=["raw", "effective"], default="effective")
+    p.add_argument(
+        "--coverage-metric",
+        choices=["raw", "effective"],
+        default=None,
+        help="Default: params.json's coverage_metric, else effective",
+    )
     p.add_argument("--coverage-reach", type=int)
     p.add_argument(
         "--no-repair",

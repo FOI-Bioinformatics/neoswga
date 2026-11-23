@@ -129,7 +129,9 @@ def test_cli_registers_pool_planner():
     args = create_parser().parse_args(
         ["plan-pool", "-j", "params.json", "--min-selectivity-density", "10"]
     )
-    assert args.primer_length == 12
+    # None: the length comes from params.json unless the flag is given
+    # (`_resolve_plan_options`, 2026-11-24).
+    assert args.primer_length is None
     assert args.coverage_targets == [0.9, 0.95]
 
 
