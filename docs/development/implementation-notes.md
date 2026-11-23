@@ -400,6 +400,21 @@ Accepted by every pipeline step; each one routes through
 The flag is per-invocation: it is assigned to `parameter.enable_qa` on every
 step, so it cannot carry over to a later step in the same process.
 
+### Failure records and step order
+
+`design_failure.json` names the step that failed (`count-kmers`, `filter`,
+`prepare-candidates`, `optimize`; `design` names the step it was running).
+Since 2026-11-23 every nonzero exit of a design step writes one, not only a
+`DesignError` reaching the boundary (`cli/_failure.run_pipeline_command`).
+`prepare-candidates` and `optimize` refuse while a record from an earlier step
+is present and leave it in place; a step's success clears only a record naming
+that step, and `optimize` clears any. `optimize` also refuses a `step3_df.csv`
+that the run manifest shows was prepared from a different `step2_df.csv`
+(`run_manifest.step3_matches_step2`). `interpret` and `report` take
+`export_is_blocked`'s verdict. The record directory for a design step comes
+from params.json, not `--data-dir`, which the steps ignore.
+`docs/validation/2026-11-23-tier1-bug-sweep.md`.
+
 ### The `prepare-candidates` stage
 
 **Renamed from `score` on 2026-09-21, with no alias.** The old name described

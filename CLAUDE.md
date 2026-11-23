@@ -84,8 +84,9 @@ Files in `data_dir`:
   full SHA-256. A record under the older partial hash is unknown, not stale.
 - `run_manifest.json`: one entry per step. `effective_conditions` is the
   reaction the step ran under, which can differ from params.json.
-- `design_failure.json`: written when a design fails; `export` refuses while
-  it is present.
+- `design_failure.json`: written when any design step fails, naming the step;
+  `export`, `interpret` and `report` refuse while it is present, and a later
+  step refuses after an earlier step's record (2026-11-23).
 
 ## CLI Commands
 
@@ -407,7 +408,9 @@ Full text: [docs/development/KNOWN_ISSUES.md](docs/development/KNOWN_ISSUES.md).
    neither `require_model_support` (reads the params FILE) nor the
    key-presence guards (read `_json_data`) -- eight of eleven presets ran an
    enzyme outside its own oligo range, and one overrode the GC-adaptive
-   betaine it had just logged.
+   betaine it had just logged. 2026-11-23: `design` back-filled
+   `mechanistic_weight=0.3` that `optimize` leaves unset, and `network` used
+   phi29's 70 kb reach for every polymerase.
 9. **Evenness needs sites**: Gini is NaN below `min_gini_sites`.
 10. **The candidate loader** uses the same Tm as the gate.
 11. **Near-duplicate primers**: the redundancy threshold exists and is disabled
