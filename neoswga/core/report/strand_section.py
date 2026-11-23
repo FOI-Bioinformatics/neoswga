@@ -137,6 +137,12 @@ def _gap_against_reach(prefix: str, role: str, figures: dict[str, Any], reach: i
     gap = figures.get("strand_alternation_gap_max")
     if gap is None or not reach:
         return None
+    # A gap is a measurement only where both strands hold sites. With no sites
+    # at all the ratio is None, not 0.0, and the gap holds the genome-length
+    # placeholder; it printed as "2.1x the reach" until 2026-11-24.
+    ratio = figures.get("strand_coverage_ratio")
+    if ratio is None or float(ratio) <= 0.0:
+        return None
     multiple = float(gap) / float(reach)
     if multiple <= 1.0:
         return None
