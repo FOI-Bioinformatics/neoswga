@@ -1447,6 +1447,17 @@ from neoswga.core.exceptions import DesignError
 from neoswga.core.optimizer_factory import OptimizerFactory
 
 
+def _resolve_max_extension(explicit, conditions):
+    """The connectivity reach: an explicit value, else the polymerase's."""
+    if explicit is not None:
+        return explicit
+    from neoswga.core.hybrid_optimizer import _get_polymerase_config
+    from neoswga.core.stage2_ranking import resolve_reaction
+
+    polymerase, _ = resolve_reaction(None, None, conditions)
+    return _get_polymerase_config(polymerase or "phi29").max_extension
+
+
 @OptimizerFactory.register("network", aliases=["network-optimizer", "tm-weighted"])
 class NetworkBaseOptimizer(BaseOptimizer):
     """
@@ -1490,9 +1501,10 @@ class NetworkBaseOptimizer(BaseOptimizer):
             bg_prefixes=bg_prefixes or [],
             fg_seq_lengths=fg_seq_lengths,
             bg_seq_lengths=bg_seq_lengths or [],
-            # `or` rather than a dict default: an unset --max-extension arrives
-            # as an explicit None, which the default would not replace.
-            max_extension=kwargs.get("max_extension") or 70000,
+            # An unset --max-extension arrives as None and means this reaction's
+            # polymerase, as on `hybrid`. A fixed 70,000 (phi29's) gave bst,
+            # whose processivity is 2 kb, a 35-fold network reach.
+            max_extension=_resolve_max_extension(kwargs.get("max_extension"), conditions),
             uniformity_weight=kwargs.get("uniformity_weight", 0.0),
             max_dimer_dg=getattr(self.config, "max_dimer_dg", None),
             reaction_temp=kwargs.get("reaction_temp"),
