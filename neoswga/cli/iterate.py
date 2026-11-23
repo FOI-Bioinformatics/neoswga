@@ -555,22 +555,35 @@ def run_swap_primer(args):
         print(output_json)
 
 
-def _realistic_reach():
-    """Per-primer coverage reach for the configured polymerase.
+def _rescore_reach(polymerase):
+    """Per-primer coverage reach for rescore-set: `coverage_reach`, else realistic.
 
-    Coverage is scored on the REALISTIC reach (~3 kb for phi29), not
-    single-molecule processivity (~70 kb). contract-set and rescore-set both
-    used processivity, which on a multi-Mb target let one binding site cover a
-    large fraction of the genome -- turning --min-coverage into an on/off switch
-    rather than a threshold.
+    The realistic per-primer reach (~3 kb for phi29), not single-molecule
+    processivity (~70 kb), which let one site cover much of a genome. And the
+    configured `coverage_reach` when there is one, so this command scores a set
+    at the reach `optimize` selected it at; it ignored the key until 2026-11-23.
+    Uses `coverage.polymerase_extension_reach` through `resolve_coverage_reach`.
     """
     from neoswga.core import parameter
-    from neoswga.core.coverage import polymerase_extension_reach
+    from neoswga.core.coverage import resolve_coverage_reach
 
-    return polymerase_extension_reach(
-        getattr(parameter, "polymerase", "phi29") or "phi29",
-        coverage_metric="realistic",
-    )
+    return resolve_coverage_reach(polymerase, override=getattr(parameter, "coverage_reach", None))
+
+
+def _selectivity_ratio(fg_cov, bg_cov, has_background):
+    """Target over host coverage; None with no host, the sentinel at zero host.
+
+    It was `fg_cov * 1000` whenever host coverage was zero, including with no
+    host configured: a figure nothing measured. `MAX_SELECTIVITY` is the
+    optimizer's own "no background binding" sentinel, so the two agree.
+    """
+    if not has_background:
+        return None
+    if bg_cov <= 1e-12:
+        from neoswga.core.selectivity import MAX_SELECTIVITY
+
+        return float(MAX_SELECTIVITY)
+    return float(fg_cov / bg_cov)
 
 
 def _prefix_lengths(parameter, kind):
@@ -746,16 +759,13 @@ def run_rescore_set(args):
     # multi-target user can see uneven distribution.
     coverage_block: dict = {}
     try:
-        from neoswga.core.coverage import (
-            compute_per_prefix_coverage,
-            polymerase_extension_reach,
-        )
+        from neoswga.core.coverage import compute_per_prefix_coverage
         from neoswga.core.position_cache import PositionCache
 
         # Realistic per-primer reach, matching how the optimizer scores
         # fg_coverage. This used single-molecule processivity (~70 kb), which
         # overstated coverage by roughly an order of magnitude.
-        extension = polymerase_extension_reach(conditions.polymerase, coverage_metric="realistic")
+        extension = _rescore_reach(conditions.polymerase)
 
         fg_prefixes, fg_lengths = _prefix_lengths(parameter, "fg")
 
@@ -795,7 +805,7 @@ def run_rescore_set(args):
             "per_target_coverage": {k: float(v) for k, v in fg_per_target.items()},
             "bg_coverage": float(bg_cov),
             "per_background_coverage": {k: float(v) for k, v in bg_per_prefix.items()},
-            "selectivity_ratio": float((fg_cov / bg_cov) if bg_cov > 1e-12 else (fg_cov * 1000.0)),
+            "selectivity_ratio": _selectivity_ratio(fg_cov, bg_cov, bool(bg_prefixes)),
             "extension_reach_bp": int(extension),
         }
     except MissingPositionsError as e:
