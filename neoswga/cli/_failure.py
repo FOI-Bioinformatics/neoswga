@@ -166,7 +166,8 @@ def run_pipeline_command(args, command_func):
         if exited.code not in (0, None) and not getattr(args, "refused_upstream", False):
             cause = exited.__cause__ or exited.__context__
             write_failure_artifact(
-                args, cause or RuntimeError(f"{failure_stage(args)} exited with status {exited.code}")
+                args,
+                cause or RuntimeError(f"{failure_stage(args)} exited with status {exited.code}"),
             )
         raise
     if step in PIPELINE_STEPS[:3]:

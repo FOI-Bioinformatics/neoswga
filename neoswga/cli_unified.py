@@ -59,15 +59,15 @@ import sys
 # whose import chain reaches scikit-learn and cost about 0.6 s on every
 # invocation including `--help`.
 from neoswga.cli._failure import (
+    PIPELINE_COMMANDS,
     RunState,
+    record_pipeline_failure,
 )
 from neoswga.cli._failure import report_design_failure as _report_design_failure  # noqa: F401
-from neoswga.cli._failure import write_failure_artifact as _write_failure_artifact
 from neoswga.cli._failure import (
-    PIPELINE_COMMANDS,
-    record_pipeline_failure,
     run_pipeline_command,
 )
+from neoswga.cli._failure import write_failure_artifact as _write_failure_artifact
 from neoswga.core.exceptions import DesignError, StepPrerequisiteError  # noqa: F401
 
 # Setup logging

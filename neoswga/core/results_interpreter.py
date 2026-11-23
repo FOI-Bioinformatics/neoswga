@@ -264,7 +264,9 @@ class ResultsInterpreter:
 
         reason = export_is_blocked(str(self.results_dir), self.set_index or 0)
         if reason is None and self._blocks_synthesis():
-            reason = "The optimizer recorded findings about this set that have to be resolved first."
+            reason = (
+                "The optimizer recorded findings about this set that have to be resolved first."
+            )
         return reason
 
     def analyze(self) -> ResultsReport:

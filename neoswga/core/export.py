@@ -416,8 +416,7 @@ def export_to_vendor_csv(
         ordered_sequences = list(primers)
     elif len(ordered_sequences) != len(primers):
         raise ValueError(
-            f"ordered_sequences has {len(ordered_sequences)} entries for "
-            f"{len(primers)} primers"
+            f"ordered_sequences has {len(ordered_sequences)} entries for " f"{len(primers)} primers"
         )
     vendor = vendor.lower()
     if vendor not in VENDOR_FORMATS:
