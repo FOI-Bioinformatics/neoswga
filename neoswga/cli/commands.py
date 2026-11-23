@@ -680,11 +680,13 @@ def _design_step_begins(args, number, name, start_step, stop_step):
     """
     if not start_step <= number <= stop_step:
         return False
-    from neoswga.cli._failure import refuse_after_upstream_failure
+    from neoswga.cli._failure import refuse_after_upstream_failure, refuse_stale_candidates
 
     args.current_step = name
     if number >= 3:
         refuse_after_upstream_failure(args, name)
+    if number == 4:
+        refuse_stale_candidates(args)
     logger.info("=" * 80)
     logger.info(f"{name.upper()}: design step {number} of 4")
     logger.info("=" * 80)

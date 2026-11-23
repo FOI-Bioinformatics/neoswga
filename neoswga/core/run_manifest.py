@@ -364,3 +364,46 @@ def _parse_timestamp(value: Any) -> datetime | None:
     except ValueError:
         return None
     return parsed if parsed.tzinfo else parsed.replace(tzinfo=UTC)
+
+
+def step3_matches_step2(data_dir: str) -> bool | None:
+    """Whether ``step3_df.csv`` was prepared from the current ``step2_df.csv``.
+
+    Finds the latest ``prepare-candidates`` entry whose recorded output is the
+    current ``step3_df.csv`` and compares its recorded input with the current
+    ``step2_df.csv``. False is a demonstrated mismatch: ``filter`` was re-run
+    and ``prepare-candidates`` was not. None means no entry describes this
+    ``step3_df.csv`` (a directory written before checksums were recorded, or
+    a manifest that cannot be read), and the caller decides what unknown
+    allows. Paths are compared by basename because a run records them as it
+    resolved ``data_dir``, relative or absolute.
+    """
+    step2 = os.path.join(data_dir, "step2_df.csv")
+    step3 = os.path.join(data_dir, "step3_df.csv")
+    current3, current2 = _sha256(step3), _sha256(step2)
+    if current3 is None:
+        return None
+    try:
+        with open(os.path.join(data_dir, MANIFEST_FILENAME)) as f:
+            steps = json.load(f).get("steps", [])
+    except (OSError, ValueError, AttributeError):
+        return None
+
+    def _by_name(checksums, name):
+        if not isinstance(checksums, dict):
+            return None
+        for path, digest in checksums.items():
+            if os.path.basename(str(path)) == name:
+                return digest
+        return None
+
+    for entry in reversed(steps if isinstance(steps, list) else []):
+        if not isinstance(entry, dict) or entry.get("step") != "prepare-candidates":
+            continue
+        if _by_name(entry.get("output_checksums"), "step3_df.csv") != current3:
+            continue
+        recorded2 = _by_name(entry.get("input_checksums"), "step2_df.csv")
+        if recorded2 is None:
+            return None
+        return recorded2 == current2
+    return None

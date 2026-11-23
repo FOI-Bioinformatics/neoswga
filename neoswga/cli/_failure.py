@@ -108,6 +108,35 @@ def refuse_after_upstream_failure(args, step):
         sys.exit(1)
 
 
+def refuse_stale_candidates(args):
+    """Exit when `step3_df.csv` was prepared from a different `step2_df.csv`.
+
+    `prepare-candidates` records both checksums in the run manifest, and until
+    2026-11-23 nothing compared them: `filter` re-run with new thresholds and
+    `prepare-candidates` skipped left `optimize` running on the old pool. A
+    directory with no such record is allowed with a warning, since it may
+    predate the checksums; a demonstrated mismatch is refused.
+    """
+    from neoswga.core.run_manifest import step3_matches_step2
+
+    directory = _pipeline_directory(getattr(args, "json_file", None))
+    if not directory or not os.path.exists(os.path.join(str(directory), "step3_df.csv")):
+        return
+    match = step3_matches_step2(str(directory))
+    if match is False:
+        logger.error(
+            "step3_df.csv was prepared from a different step2_df.csv than the one "
+            "in this directory: `filter` has been re-run since. Re-run "
+            "'neoswga prepare-candidates -j params.json' first."
+        )
+        sys.exit(1)
+    if match is None:
+        logger.warning(
+            "No run-manifest entry ties step3_df.csv to the current step2_df.csv; "
+            "it cannot be checked that `prepare-candidates` ran after the last `filter`."
+        )
+
+
 def record_pipeline_failure(args, error):
     """Record `error` when a design step raised it; other commands leave none."""
     if getattr(args, "command", None) in PIPELINE_COMMANDS:
@@ -125,6 +154,8 @@ def run_pipeline_command(args, command_func):
     try:
         if step in PIPELINE_STEPS[2:]:
             refuse_after_upstream_failure(args, step)
+        if step == "optimize":
+            refuse_stale_candidates(args)
         command_func(args)
     except SystemExit as exited:
         if exited.code not in (0, None) and not getattr(args, "refused_upstream", False):
