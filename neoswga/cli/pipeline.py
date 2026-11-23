@@ -10,7 +10,7 @@ import sys
 
 from neoswga.cli._common import (
     _record_run_manifest,
-    check_jellyfish_available,
+    check_kmer_counter_available,
     collect_primers_from_args,
     load_preset_conditions,
     merge_args_to_parameter,
@@ -49,7 +49,9 @@ from neoswga.core.exceptions import DesignError, StepPrerequisiteError
 
 def run_step1(args):
     """Run step 1: K-mer preprocessing"""
-    check_jellyfish_available()
+    # The exclusion and blacklist genomes are still counted with jellyfish.
+    _direct_jf = getattr(args, "exclusion_genome", None) or getattr(args, "blacklist", None)
+    check_kmer_counter_available(args.json_file, need_jellyfish=bool(_direct_jf))
     validate_params_json_file(args.json_file)
     import time as _time
 

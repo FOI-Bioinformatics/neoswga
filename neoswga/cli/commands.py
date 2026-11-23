@@ -12,7 +12,7 @@ import os
 import sys
 
 from neoswga.cli._common import (
-    check_jellyfish_available,
+    check_kmer_counter_available,
     collect_primers_from_args,
     merge_args_to_parameter,
     validate_params_json_file,
@@ -674,7 +674,7 @@ def _apply_design_defaults(args):
 
 def run_design(args):
     """Run complete primer design pipeline (all 4 steps)"""
-    check_jellyfish_available()
+    check_kmer_counter_available(getattr(args, "json_file", None))
     logger.info("Running complete primer design pipeline")
 
     # `--multi-genome` called `multi_genome_pipeline.design_pan_genome_primers`,

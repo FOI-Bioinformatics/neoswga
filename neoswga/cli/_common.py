@@ -54,30 +54,53 @@ def params_command(_func=None, *, merge=("json_file",), seed=False, validate=Tru
 
 
 def check_jellyfish_available():
-    """Check that Jellyfish is installed and raise a clear error if not.
+    """Require jellyfish itself. Kept for importers; see the function below."""
+    check_kmer_counter_available(None, need_jellyfish=True)
 
-    Called before commands that require Jellyfish (count-kmers, design).
+
+def check_kmer_counter_available(json_file=None, need_jellyfish=False):
+    """Exit with install advice unless the counter this run will use is present.
+
+    Called before `count-kmers` and `design`. It asked for jellyfish alone until
+    2026-11-23, so a machine with only KMC3 was refused even though
+    `kmer_backend.select_backend` prefers KMC. The counter is resolved the way
+    counting resolves it: `kmer_counter` in the params FILE (this runs before
+    `get_params`) names one strictly; otherwise KMC, then jellyfish.
+
+    `need_jellyfish` is for the exclusion and blacklist genomes, which
+    `run_step1` still counts with `run_jellyfish` directly.
     """
-    from neoswga.core.kmer_counter import check_jellyfish_available as _check
+    import json
+
+    from neoswga.core.kmer_backend import JellyfishBackend, select_backend
     from neoswga.core.kmer_counter import get_jellyfish_version
 
-    if not _check():
-        logger.error(
-            "Jellyfish is required but not found in PATH.\n"
-            "Jellyfish is an external k-mer counting tool that must be installed separately.\n\n"
-            "Install via conda:  conda install -c bioconda jellyfish\n"
-            "Install via brew:   brew install jellyfish\n"
-            "Build from source:  https://github.com/gmarcais/Jellyfish\n\n"
-            "After installation, verify with:  jellyfish --version"
-        )
-        sys.exit(1)
-    version = get_jellyfish_version()
-    if version and version.split(".")[0] == "1":
-        logger.error(
-            f"Jellyfish version {version} detected. NeoSWGA requires Jellyfish 2.x.\n"
-            "Please upgrade: https://github.com/gmarcais/Jellyfish"
-        )
-        sys.exit(1)
+    name = None
+    if json_file:
+        try:
+            with open(json_file) as handle:
+                name = json.load(handle).get("kmer_counter")
+        except (OSError, ValueError, AttributeError):
+            name = None  # the params validation that follows reports it
+    backend = select_backend(name or None)
+    backends = [backend]
+    if need_jellyfish and backend.name != "jellyfish":
+        backends.append(JellyfishBackend())
+    for required in backends:
+        if not required.available():
+            logger.error(
+                f"The {required.name} k-mer counter is required but not found in "
+                f"PATH. {required.install_hint}"
+            )
+            sys.exit(1)
+    if any(b.name == "jellyfish" for b in backends):
+        version = get_jellyfish_version()
+        if version and version.split(".")[0] == "1":
+            logger.error(
+                f"Jellyfish version {version} detected. NeoSWGA requires Jellyfish 2.x.\n"
+                "Please upgrade: https://github.com/gmarcais/Jellyfish"
+            )
+            sys.exit(1)
 
 
 # =============================================================================
