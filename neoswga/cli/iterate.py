@@ -430,7 +430,15 @@ def _load_primer_list(cli_primers, primers_file, name="primer"):
                 p = line.strip().split()[0] if line.strip() else ""
                 if p and not p.startswith("#"):
                     primers.append(p)
-    primers = [p.upper().strip() for p in primers if p.strip()]
+    # Validated and de-duplicated, as `collect_primers_from_args` does; this
+    # only upper-cased until 2026-11-24, so a duplicate was analysed twice and
+    # a non-DNA string was scored.
+    from neoswga.cli._common import validate_primer_sequence
+
+    validated = [validate_primer_sequence(p, name) for p in primers if p.strip()]
+    primers = list(dict.fromkeys(validated))
+    if len(primers) < len(validated):
+        logger.warning(f"Dropped {len(validated) - len(primers)} duplicate {name}(s)")
     if not primers:
         logger.error(f"No {name} sequences provided")
         sys.exit(1)
