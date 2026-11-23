@@ -91,6 +91,46 @@ def run_multi_genome(args):
 # =========================================================================
 
 
+def _validated_primers(primers):
+    """Upper-cased primers, or exit naming one that is not DNA.
+
+    The genome is scanned upper-case, so a lower-case primer found no sites
+    and the run reported 0% coverage as if it had been measured.
+    """
+    cleaned = [str(p).strip().upper() for p in primers]
+    for primer in cleaned:
+        if not primer or set(primer) - set("ACGT"):
+            logger.error(f"Not a primer sequence (A, C, G, T only): {primer!r}")
+            sys.exit(1)
+    return cleaned
+
+
+def _resolve_reaction(args):
+    """(polymerase, recorded temperature or None) for this simulation.
+
+    `--polymerase` when given. Otherwise, for `--from-results DIR`, the
+    reaction the optimize step recorded, so a design made for equiphi29 at
+    42 C is not simulated as phi29 at 30 C, which the old argparse default did.
+    Otherwise phi29 at its optimum, said in the log.
+    """
+    if getattr(args, "polymerase", None):
+        return args.polymerase, None
+    source = getattr(args, "from_results", None)
+    if source and os.path.isdir(source):
+        from neoswga.core.run_manifest import read_effective_conditions
+
+        recorded = read_effective_conditions(source, step="optimize") or {}
+        if recorded.get("polymerase"):
+            temp = recorded.get("reaction_temp")
+            logger.info(
+                f"Simulating the recorded reaction: {recorded['polymerase']}"
+                + (f" at {temp} C" if temp is not None else "")
+            )
+            return str(recorded["polymerase"]), (float(temp) if temp is not None else None)
+    logger.info("No --polymerase and no recorded reaction; simulating phi29.")
+    return "phi29", None
+
+
 def run_simulate(args):
     """Monte Carlo amplification simulation"""
     import json
@@ -147,6 +187,7 @@ def run_simulate(args):
         logger.info(f"Loaded {delivered.describe()} from results")
     else:
         primers = args.primers
+    primers = _validated_primers(primers)
 
     logger.info(f"Running amplification simulation for {len(primers)} primers")
     logger.info(f"Genome: {args.genome}")
@@ -192,7 +233,7 @@ def run_simulate(args):
             logger.info(f"  {primer}: {total} binding sites")
 
         # Get reaction conditions based on polymerase type
-        polymerase = getattr(args, "polymerase", "phi29")
+        polymerase, recorded_temp = _resolve_reaction(args)
 
         # Get polymerase characteristics for optimal temperature
         from neoswga.core.reaction_conditions import POLYMERASE_CHARACTERISTICS
@@ -211,7 +252,8 @@ def run_simulate(args):
         logger.info(f"  Processivity: {processivity:,} bp")
 
         # Create conditions with appropriate temperature
-        conditions = rc.ReactionConditions(temp=optimal_temp, polymerase=polymerase)
+        temperature = recorded_temp if recorded_temp is not None else optimal_temp
+        conditions = rc.ReactionConditions(temp=temperature, polymerase=polymerase)
 
         # Configure simulation
         duration = args.duration * 60.0  # Convert minutes to seconds
@@ -228,6 +270,9 @@ def run_simulate(args):
             genome_sequence=genome_sequence,
             conditions=conditions,
             n_replicates=n_replicates,
+            # Built above and, until 2026-11-23, never passed: every run used
+            # the default 8 h whatever --duration said.
+            config=config,
             seed=getattr(args, "seed", None),
         )
 
@@ -363,9 +408,9 @@ def add_parsers(subparsers):
     simulate_parser.add_argument(
         "--polymerase",
         choices=_polymerase_names(),
-        default="phi29",
-        help="Polymerase type: phi29 (30C), equiphi29 (42C), "
-        "bst (63C), klenow (37C) (default: phi29)",
+        default=None,
+        help="Polymerase type: phi29 (30C), equiphi29 (42C), bst (63C), klenow "
+        "(37C). Default: the reaction recorded with --from-results DIR, else phi29.",
     )
     simulate_parser.add_argument(
         "--visualize", action="store_true", help="Generate visualization plots"
