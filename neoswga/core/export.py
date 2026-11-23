@@ -441,7 +441,7 @@ def export_to_vendor_csv(
         writer = csv.DictWriter(f, fieldnames=columns)
         writer.writeheader()
 
-        for i, (primer, ordered) in enumerate(zip(primers, ordered_sequences), 1):
+        for i, (primer, ordered) in enumerate(zip(primers, ordered_sequences, strict=True), 1):
             row = defaults.copy()
             name = f"{project_name}_{i:03d}"
 
