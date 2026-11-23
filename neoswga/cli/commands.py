@@ -627,6 +627,51 @@ def run_predict_efficiency(args):
 # =========================================================================
 
 
+def _apply_design_defaults(args):
+    """Back-fill the step-4 attributes the `design` subparser does not define.
+
+    Every value here must be what `optimize` resolves when the matching flag is
+    absent. A real value where `optimize` has None is a default that beats
+    params.json (Known Issue 8).
+    """
+    # Ensure optimize-specific attributes exist on args namespace
+    # (the design subparser doesn't define these but run_step4 needs them)
+    optimize_defaults = {
+        # None, so `resolve_optimization_method` falls through to
+        # params.json. Hardcoding "hybrid" here pinned the one-shot
+        # `design` path to it from a second, independent direction.
+        "optimization_method": None,
+        "num_primers": None,
+        "iterations": None,
+        "max_sets": None,
+        "no_background": False,
+        "use_mechanistic_model": False,
+        # None, as on `optimize`. `run_step4` reads any weight above zero as a
+        # request for the mechanistic model, so 0.3 here switched it on for
+        # every `design` run and left it off for `optimize` on the same file.
+        "mechanistic_weight": None,
+        # The name `run_step4` reads; `validate_with_simulation` was read by
+        # nothing on this path.
+        "validate_simulation": False,
+        "method_guide": False,
+        "no_bg_prefilter": False,
+        "strategy": None,
+        "use_position_cache": True,
+        "use_background_filter": False,
+        "enable_qa": False,
+        # The set-size flags are registered on the design subparser, so a user
+        # who passes one gets it and the `hasattr` guard below leaves it alone.
+        # These remain for a caller that builds an args namespace by hand.
+        "show_frontier": False,
+        "quick_estimate": False,
+        "min_fg_bg_ratio": None,
+        "template_gc": None,
+    }
+    for attr, default in optimize_defaults.items():
+        if not hasattr(args, attr):
+            setattr(args, attr, default)
+
+
 def run_design(args):
     """Run complete primer design pipeline (all 4 steps)"""
     check_jellyfish_available()
@@ -670,37 +715,7 @@ def run_design(args):
 
     logger.info(f"Running steps {start_step} through {stop_step}")
 
-    # Ensure optimize-specific attributes exist on args namespace
-    # (the design subparser doesn't define these but run_step4 needs them)
-    optimize_defaults = {
-        # None, so `resolve_optimization_method` falls through to
-        # params.json. Hardcoding "hybrid" here pinned the one-shot
-        # `design` path to it from a second, independent direction.
-        "optimization_method": None,
-        "num_primers": None,
-        "iterations": None,
-        "max_sets": None,
-        "no_background": False,
-        "use_mechanistic_model": False,
-        "mechanistic_weight": 0.3,
-        "validate_with_simulation": False,
-        "method_guide": False,
-        "no_bg_prefilter": False,
-        "strategy": None,
-        "use_position_cache": True,
-        "use_background_filter": False,
-        "enable_qa": False,
-        # The set-size flags are registered on the design subparser, so a user
-        # who passes one gets it and the `hasattr` guard below leaves it alone.
-        # These remain for a caller that builds an args namespace by hand.
-        "show_frontier": False,
-        "quick_estimate": False,
-        "min_fg_bg_ratio": None,
-        "template_gc": None,
-    }
-    for attr, default in optimize_defaults.items():
-        if not hasattr(args, attr):
-            setattr(args, attr, default)
+    _apply_design_defaults(args)
 
     # Run each step sequentially
     try:
