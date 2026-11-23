@@ -1125,3 +1125,29 @@ def set_size_shortfall_advice(num_found, target_size, method=None):
     if method:
         lines.append(f"  - Trying a different optimizer (current: {method})")
     return lines
+
+
+def design_position_cache(prefixes, primers, genomes):
+    """A position cache that answers for every primer, or refuses.
+
+    The position index holds the filtered shortlist. A primer a user brings is
+    usually outside it, and the default cache read such a primer as binding
+    nowhere: `analyze-coverage` reported the whole genome as one gap and
+    `expand-primers` proposed a primer to fill it. With the genomes aligned to
+    the prefixes the cache scans for what the index lacks (as `evaluate-set`
+    does); without them it raises `MissingPositionsError` rather than answer
+    zero.
+    """
+    from neoswga.core.position_cache import PositionCache
+
+    prefixes, genomes = list(prefixes), list(genomes or [])
+    if genomes and len(genomes) == len(prefixes):
+        return PositionCache(prefixes, list(primers), genome_paths=genomes, on_missing="scan")
+    return PositionCache(prefixes, list(primers), on_missing="error")
+
+
+def run_genomes(parameter):
+    """The run's foreground then background FASTAs, aligned with its prefixes."""
+    return list(getattr(parameter, "fg_genomes", []) or []) + list(
+        getattr(parameter, "bg_genomes", []) or []
+    )
