@@ -1151,3 +1151,24 @@ def run_genomes(parameter):
     return list(getattr(parameter, "fg_genomes", []) or []) + list(
         getattr(parameter, "bg_genomes", []) or []
     )
+
+
+def resolve_seed(args):
+    """The run's random seed: `--seed`, else params.json's `seed`, else None.
+
+    `resolve_design_request` hashes the file's `seed` into the request, and
+    `optimize` seeded from the flag alone until 2026-11-24, so a file declaring
+    a seed recorded it in the request identity and ran unseeded.
+    """
+    flag = getattr(args, "seed", None)
+    if flag is not None:
+        return flag
+    json_file = getattr(args, "json_file", None)
+    if not json_file:
+        return None
+    try:
+        with open(json_file) as handle:
+            value = json.load(handle).get("seed")
+    except (OSError, ValueError, AttributeError):
+        return None
+    return int(value) if isinstance(value, int) and not isinstance(value, bool) else None

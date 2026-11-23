@@ -672,6 +672,12 @@ def unknown_param_keys(params: dict[str, Any]) -> list[tuple[str, str | None]]:
     if not declared:
         return []
 
+    # Keys the design request reads that the schema does not declare
+    # (`seed`, `fixed_oligos`, ...). They were reported as "will be ignored",
+    # which was false.
+    from neoswga.core.design_request import _REQUEST_ONLY_KEYS
+
+    declared = declared | _REQUEST_ONLY_KEYS
     found: list[tuple[str, str | None]] = []
     for key in params:
         if key in declared:
