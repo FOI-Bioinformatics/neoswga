@@ -732,3 +732,40 @@ def test_max_pool_size_configured_in_params_json_reaches_the_clique_optimizer(
         f"max_pool_size={value} did not reach the clique optimizer; "
         f"it is using {optimizer.clique_config.max_pool_size}"
     )
+
+
+def _network_with(prefix, planted, conditions, **kwargs):
+    from neoswga.core.network_optimizer import NetworkBaseOptimizer
+    from neoswga.core.position_cache import PositionCache
+
+    return NetworkBaseOptimizer(
+        position_cache=PositionCache([prefix], planted["primers"]),
+        fg_prefixes=[prefix],
+        fg_seq_lengths=[GENOME_LENGTH],
+        conditions=conditions,
+        **kwargs,
+    )
+
+
+@pytest.mark.parametrize("polymerase,temp", [("bst", 63.0), ("equiphi29", 42.0), ("phi29", 30.0)])
+def test_network_reach_follows_the_polymerase_when_unset(prefix, planted, polymerase, temp):
+    """An unset `max_extension` is the polymerase's processivity, as on `hybrid`.
+
+    `network` substituted 70,000 for every enzyme, so a bst design (2 kb)
+    treated primers 70 kb apart as connected (2026-11-23 sweep, item 9).
+    """
+    from neoswga.core.hybrid_optimizer import _get_polymerase_config
+    from neoswga.core.reaction_conditions import ReactionConditions
+
+    conditions = ReactionConditions(temp=temp, polymerase=polymerase)
+    optimizer = _network_with(prefix, planted, conditions, max_extension=None)
+    expected = _get_polymerase_config(polymerase).max_extension
+    assert optimizer._network.max_extension == expected
+
+
+def test_network_explicit_reach_wins_over_the_polymerase(prefix, planted):
+    from neoswga.core.reaction_conditions import ReactionConditions
+
+    conditions = ReactionConditions(temp=63.0, polymerase="bst")
+    optimizer = _network_with(prefix, planted, conditions, max_extension=5_000)
+    assert optimizer._network.max_extension == 5_000

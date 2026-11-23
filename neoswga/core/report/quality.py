@@ -377,6 +377,12 @@ def calculate_quality_grade(metrics: PipelineMetrics) -> QualityAssessment:
 
     # Generate recommendation
     short_rec, detailed_rec, considerations = _generate_recommendation(grade, components)
+    # The grade describes the panel; whether it may be ordered is `export`'s
+    # gate, and the recommendation must not contradict it.
+    blocked_reason = getattr(metrics, "blocked_reason", None)
+    if blocked_reason:
+        short_rec = "DO NOT ORDER"
+        detailed_rec = f"Export refuses this directory: {blocked_reason}"
 
     return QualityAssessment(
         grade=grade,

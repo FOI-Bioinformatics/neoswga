@@ -218,14 +218,12 @@ def test_a_refusal_on_the_design_path_leaves_nothing_recommendable(tmp_path, ove
 def test_a_refusal_at_schema_validation_never_enters_the_design_path(tmp_path, overrides, expected):
     """Caught earlier, and better, than the design-request contract catches it.
 
-    The schema refuses these before any handler runs, naming the permitted
-    values. No failure record is written and none is wanted: the design path
-    was never entered, so there is no stage to name, and the directory has no
-    step-4 output for anyone to mistake for current.
-
-    Asserted separately from the design-path refusals rather than folded in,
-    because "exits nonzero" is the same observation from two different
-    mechanisms and only one of them owes a record.
+    The schema refuses these before the design path is entered, naming the
+    permitted values. Until 2026-11-23 no record was written here, on the
+    ground that there was no stage to name. There is one: the step that was
+    refused. A directory holding an earlier run's step-4 output would
+    otherwise still export it after `optimize` refused the current
+    configuration, which is the gap a failure record exists to close.
     """
     workspace = prepared(tmp_path)
     write_params(workspace, **overrides)
@@ -235,8 +233,8 @@ def test_a_refusal_at_schema_validation_never_enters_the_design_path(tmp_path, o
 
     assert result.returncode != 0, f"accepted {overrides}:\n{output}"
     assert expected in output, output[-1500:]
-    assert failure_record(workspace) is None
-    assert_nothing_recommendable(workspace, expect_record=False)
+    assert failure_record(workspace)["stage"] == "optimize"
+    assert_nothing_recommendable(workspace)
 
 
 def test_a_missing_position_index_is_refused(tmp_path):
@@ -520,3 +518,18 @@ def test_expansion_refuses_a_bam_naming_no_configured_reference(tmp_path):
         "an unmatched BAM was accepted silently, so the depth it supplied was "
         "nothing and every base looked like a gap:\n" + combined
     )
+
+
+def test_a_failed_design_rerun_blocks_the_previous_panel(tmp_path):
+    """`design` caught every error and exited without a record until 2026-11-23,
+    so a refused re-run left the previous run's panel exportable."""
+    workspace = stage_workspace(tmp_path)
+    write_params(workspace)
+    first = run(["design", "-j", "params.json"], workspace)
+    assert first.returncode == 0, first.stdout + first.stderr
+    assert (workspace / "results" / "step4_improved_df.csv").exists()
+
+    write_params(workspace, glycerol_percent=10.0)
+    second = run(["design", "-j", "params.json"], workspace)
+    assert second.returncode != 0
+    assert_nothing_recommendable(workspace)

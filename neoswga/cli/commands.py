@@ -12,7 +12,7 @@ import os
 import sys
 
 from neoswga.cli._common import (
-    check_jellyfish_available,
+    check_kmer_counter_available,
     collect_primers_from_args,
     merge_args_to_parameter,
     validate_params_json_file,
@@ -627,9 +627,83 @@ def run_predict_efficiency(args):
 # =========================================================================
 
 
+def _apply_design_defaults(args):
+    """Back-fill the step-4 attributes the `design` subparser does not define.
+
+    Every value here must be what `optimize` resolves when the matching flag is
+    absent. A real value where `optimize` has None is a default that beats
+    params.json (Known Issue 8).
+    """
+    # Ensure optimize-specific attributes exist on args namespace
+    # (the design subparser doesn't define these but run_step4 needs them)
+    optimize_defaults = {
+        # None, so `resolve_optimization_method` falls through to
+        # params.json. Hardcoding "hybrid" here pinned the one-shot
+        # `design` path to it from a second, independent direction.
+        "optimization_method": None,
+        "num_primers": None,
+        "iterations": None,
+        "max_sets": None,
+        "no_background": False,
+        "use_mechanistic_model": False,
+        # None, as on `optimize`. `run_step4` reads any weight above zero as a
+        # request for the mechanistic model, so 0.3 here switched it on for
+        # every `design` run and left it off for `optimize` on the same file.
+        "mechanistic_weight": None,
+        # The name `run_step4` reads; `validate_with_simulation` was read by
+        # nothing on this path.
+        "validate_simulation": False,
+        "method_guide": False,
+        "no_bg_prefilter": False,
+        "strategy": None,
+        "use_position_cache": True,
+        "use_background_filter": False,
+        "enable_qa": False,
+        # The set-size flags are registered on the design subparser, so a user
+        # who passes one gets it and the `hasattr` guard below leaves it alone.
+        # These remain for a caller that builds an args namespace by hand.
+        "show_frontier": False,
+        "quick_estimate": False,
+        "min_fg_bg_ratio": None,
+        "template_gc": None,
+    }
+    for attr, default in optimize_defaults.items():
+        if not hasattr(args, attr):
+            setattr(args, attr, default)
+
+
+def _design_step_begins(args, number, name, start_step, stop_step):
+    """Whether `design` runs step `number`; if so, name it and check upstream.
+
+    A step starting mid-pipeline refuses after an upstream failure, as the
+    standalone command does.
+    """
+    if not start_step <= number <= stop_step:
+        return False
+    from neoswga.cli._failure import refuse_after_upstream_failure, refuse_stale_candidates
+
+    args.current_step = name
+    if number >= 3:
+        refuse_after_upstream_failure(args, name)
+    if number == 4:
+        refuse_stale_candidates(args)
+    logger.info("=" * 80)
+    logger.info(f"{name.upper()}: design step {number} of 4")
+    logger.info("=" * 80)
+    return True
+
+
+def _design_step_ends(args):
+    """Clear a failure record this step left in an earlier run."""
+    from neoswga.cli._failure import _pipeline_directory, clear_failure_artifact
+
+    directory = _pipeline_directory(getattr(args, "json_file", None))
+    clear_failure_artifact(directory, stage=args.current_step)
+
+
 def run_design(args):
     """Run complete primer design pipeline (all 4 steps)"""
-    check_jellyfish_available()
+    check_kmer_counter_available(getattr(args, "json_file", None))
     logger.info("Running complete primer design pipeline")
 
     # `--multi-genome` called `multi_genome_pipeline.design_pan_genome_primers`,
@@ -670,74 +744,34 @@ def run_design(args):
 
     logger.info(f"Running steps {start_step} through {stop_step}")
 
-    # Ensure optimize-specific attributes exist on args namespace
-    # (the design subparser doesn't define these but run_step4 needs them)
-    optimize_defaults = {
-        # None, so `resolve_optimization_method` falls through to
-        # params.json. Hardcoding "hybrid" here pinned the one-shot
-        # `design` path to it from a second, independent direction.
-        "optimization_method": None,
-        "num_primers": None,
-        "iterations": None,
-        "max_sets": None,
-        "no_background": False,
-        "use_mechanistic_model": False,
-        "mechanistic_weight": 0.3,
-        "validate_with_simulation": False,
-        "method_guide": False,
-        "no_bg_prefilter": False,
-        "strategy": None,
-        "use_position_cache": True,
-        "use_background_filter": False,
-        "enable_qa": False,
-        # The set-size flags are registered on the design subparser, so a user
-        # who passes one gets it and the `hasattr` guard below leaves it alone.
-        # These remain for a caller that builds an args namespace by hand.
-        "show_frontier": False,
-        "quick_estimate": False,
-        "min_fg_bg_ratio": None,
-        "template_gc": None,
-    }
-    for attr, default in optimize_defaults.items():
-        if not hasattr(args, attr):
-            setattr(args, attr, default)
+    _apply_design_defaults(args)
 
-    # Run each step sequentially
+    # Each step runs under its own name, so a failure record says which step
+    # failed. The calls stay explicit: `test_every_cli_option_has_an_effect`
+    # follows handlers by name.
     try:
-        if start_step <= 1 <= stop_step:
-            logger.info("=" * 80)
-            logger.info("COUNT-KMERS: K-mer preprocessing")
-            logger.info("=" * 80)
+        if _design_step_begins(args, 1, "count-kmers", start_step, stop_step):
             run_step1(args)
-
-        if start_step <= 2 <= stop_step:
-            logger.info("=" * 80)
-            logger.info("FILTER: Candidate primer filtering")
-            logger.info("=" * 80)
+            _design_step_ends(args)
+        if _design_step_begins(args, 2, "filter", start_step, stop_step):
             run_step2(args)
-
-        if start_step <= 3 <= stop_step:
-            logger.info("=" * 80)
-            logger.info("SCORE: Amplification efficacy scoring")
-            logger.info("=" * 80)
+            _design_step_ends(args)
+        if _design_step_begins(args, 3, "prepare-candidates", start_step, stop_step):
             run_step3(args)
-
-        if start_step <= 4 <= stop_step:
-            logger.info("=" * 80)
-            logger.info("OPTIMIZE: Primer set optimization")
-            logger.info("=" * 80)
-            run_step4(args)
+            _design_step_ends(args)
+        if _design_step_begins(args, 4, "optimize", start_step, stop_step):
+            run_step4(args)  # clears every record itself on success
 
         logger.info("=" * 80)
         logger.info("Pipeline complete!")
         logger.info("=" * 80)
 
     except Exception as e:
-        logger.error(f"Pipeline failed at step: {e}")
-        import traceback
-
-        traceback.print_exc()
-        sys.exit(1)
+        # Re-raised, not exited: the command boundary writes the failure record
+        # under `args.current_step`. Exiting here, as this did until 2026-11-23,
+        # left no record, and `export` then shipped the previous run's panel.
+        logger.error(f"Pipeline failed at step {getattr(args, 'current_step', '?')}: {e}")
+        raise
 
 
 def _add_calibrate_reach_parser(subparsers):

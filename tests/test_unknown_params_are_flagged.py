@@ -75,10 +75,13 @@ def test_absent_optional_parameters_are_not_logged(caplog):
 def test_a_genuinely_missing_required_parameter_is_still_warned(caplog):
     from neoswga.core import parameter
 
+    # `min_tm`, not `max_bg_freq`: since 2026-11-23 an absent `max_bg_freq`
+    # takes its documented default (see `_DOCUMENTED_DEFAULT_KEYS`), while
+    # `min_tm` has no static default and is still reported.
     with caplog.at_level(logging.WARNING, logger="neoswga.core.parameter"):
-        parameter.get_value_or_default(None, {}, "max_bg_freq")
+        parameter.get_value_or_default(None, {}, "min_tm")
 
-    assert "max_bg_freq" in caplog.text
+    assert "min_tm" in caplog.text
 
 
 def test_get_params_warns_about_an_unknown_key(tmp_path, caplog):
