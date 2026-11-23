@@ -811,7 +811,10 @@ class PrimerExporter:
         # the file alone corrected the Tm for a reaction the design never saw.
         from neoswga.core.run_manifest import read_effective_conditions
 
-        recorded = read_effective_conditions(str(results_path))
+        # The optimize step's entry, not the latest of any step: a `filter`
+        # re-run after the design appends its own conditions, and reading that
+        # one corrected this panel's Tm for a buffer it was not chosen under.
+        recorded = read_effective_conditions(str(results_path), step="optimize")
         if recorded:
             params = {**params, **recorded}
 

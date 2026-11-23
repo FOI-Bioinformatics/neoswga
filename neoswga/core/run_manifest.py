@@ -218,8 +218,10 @@ def read_effective_conditions(data_dir: str, step: str | None = None) -> dict[st
     corrected for a different buffer than the one the design was optimized
     under.
 
-    With no ``step``, the latest entry carrying conditions wins, which is the
-    historical behaviour and what `export` and `report` use. Pass a step name
+    With no ``step``, the latest entry carrying conditions wins. `export` and
+    `report` pass ``step="optimize"``; they used the unfiltered read until
+    2026-11-23, when a `filter` re-run after a design was found to supply the
+    conditions for the optimize step's panel. Pass a step name
     to read that step's own reaction: the manifest is append-only and a rerun
     interleaves steps, so in one real run two ``score`` entries sat after an
     ``optimize`` entry and the unfiltered read described the optimize result

@@ -934,7 +934,8 @@ def _recorded_conditions(results_path: Path | None) -> dict[str, Any] | None:
         from neoswga.core.run_manifest import read_effective_conditions
     except ImportError:  # pragma: no cover - report can render without core
         return None
-    return read_effective_conditions(str(results_path))
+    # The step that chose the panel; see `export.PrimerExporter.from_results_dir`.
+    return read_effective_conditions(str(results_path), step="optimize")
 
 
 def _conditions_from_params(params: dict[str, Any], results_path: Path | None = None):
