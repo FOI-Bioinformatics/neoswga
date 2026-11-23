@@ -411,6 +411,18 @@ def _search_alternative(optimizer, pool, target_size, budget, constraints, throu
     )
 
 
+def _limits_broken(optimizer, primers):
+    """The configured panel limits `primers` breaks; empty when none are set.
+
+    Panel limits only. The dimer screen is the search's own business, and a run
+    that allows dimer relaxation must not lose its alternatives here.
+    """
+    from .panel_refinement import objective_for_optimizer
+
+    violations = getattr(objective_for_optimizer(optimizer), "violations", None)
+    return tuple(violations(list(primers))) if violations is not None else ()
+
+
 def collect_alternative_sets(
     primary,
     optimizer,
@@ -489,8 +501,16 @@ def collect_alternative_sets(
         if not chosen or frozenset(chosen) in seen:
             break
 
-        sets.append(chosen)
         seen.add(frozenset(chosen))
         remaining = [p for p in remaining if p not in set(chosen)]
+        broken = _limits_broken(optimizer, chosen)
+        if broken:
+            # The contract keeps a panel that misses a limit and marks it
+            # PARTIAL; for the primary that is reported and repaired, but an
+            # alternative carries no assessment, and until 2026-11-24 it was
+            # written to step4_improved_df.csv regardless.
+            logger.info(f"Alternative set not delivered: it breaks {', '.join(broken)}")
+            continue
+        sets.append(chosen)
 
     return sets
