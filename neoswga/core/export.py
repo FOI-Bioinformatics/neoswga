@@ -394,18 +394,31 @@ def export_to_vendor_csv(
     scale: str | None = None,
     purification: str | None = None,
     conditions: Optional["ReactionConditions"] = None,
+    ordered_sequences: list[str] | None = None,
 ) -> None:
     """
     Export primers in vendor-specific CSV format.
 
     Args:
-        primers: List of primer sequences.
+        primers: List of primer sequences, bare 5'-3'. Length, Tm and GC are
+            computed from these.
+        ordered_sequences: The same primers in the vendor's order syntax
+            (modifications applied), written to the sequence column. Kept
+            separate because computing length, Tm and GC on the modified string
+            counted each `*` as a base and its letters as sequence.
         output_path: Path for output file.
         vendor: Vendor name ('idt', 'twist', 'sigma', 'generic').
         project_name: Project/order name prefix.
         scale: Override default synthesis scale.
         purification: Override default purification method.
     """
+    if ordered_sequences is None:
+        ordered_sequences = list(primers)
+    elif len(ordered_sequences) != len(primers):
+        raise ValueError(
+            f"ordered_sequences has {len(ordered_sequences)} entries for "
+            f"{len(primers)} primers"
+        )
     vendor = vendor.lower()
     if vendor not in VENDOR_FORMATS:
         logger.warning(f"Unknown vendor '{vendor}', using generic format")
@@ -428,7 +441,7 @@ def export_to_vendor_csv(
         writer = csv.DictWriter(f, fieldnames=columns)
         writer.writeheader()
 
-        for i, primer in enumerate(primers, 1):
+        for i, (primer, ordered) in enumerate(zip(primers, ordered_sequences), 1):
             row = defaults.copy()
             name = f"{project_name}_{i:03d}"
 
@@ -441,11 +454,11 @@ def export_to_vendor_csv(
                 row["name"] = name
 
             if "Sequence" in columns:
-                row["Sequence"] = primer
+                row["Sequence"] = ordered
             if "Sequence (5' to 3')" in columns:
-                row["Sequence (5' to 3')"] = primer
+                row["Sequence (5' to 3')"] = ordered
             if "sequence" in columns:
-                row["sequence"] = primer
+                row["sequence"] = ordered
 
             if "length" in columns:
                 row["length"] = len(primer)
@@ -848,7 +861,13 @@ class PrimerExporter:
             apply_modifications(p, self.modifications, vendor) for p in self.primers
         ]
         kwargs.setdefault("conditions", self.conditions())
-        export_to_vendor_csv(modified_primers, output_path, vendor=vendor, **kwargs)
+        export_to_vendor_csv(
+            self.primers,
+            output_path,
+            vendor=vendor,
+            ordered_sequences=modified_primers,
+            **kwargs,
+        )
 
     def _protocol_kwargs(self, **overrides):
         kwargs = {
