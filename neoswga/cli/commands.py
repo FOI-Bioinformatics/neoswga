@@ -672,6 +672,33 @@ def _apply_design_defaults(args):
             setattr(args, attr, default)
 
 
+def _design_step_begins(args, number, name, start_step, stop_step):
+    """Whether `design` runs step `number`; if so, name it and check upstream.
+
+    A step starting mid-pipeline refuses after an upstream failure, as the
+    standalone command does.
+    """
+    if not start_step <= number <= stop_step:
+        return False
+    from neoswga.cli._failure import refuse_after_upstream_failure
+
+    args.current_step = name
+    if number >= 3:
+        refuse_after_upstream_failure(args, name)
+    logger.info("=" * 80)
+    logger.info(f"{name.upper()}: design step {number} of 4")
+    logger.info("=" * 80)
+    return True
+
+
+def _design_step_ends(args):
+    """Clear a failure record this step left in an earlier run."""
+    from neoswga.cli._failure import _pipeline_directory, clear_failure_artifact
+
+    directory = _pipeline_directory(getattr(args, "json_file", None))
+    clear_failure_artifact(directory, stage=args.current_step)
+
+
 def run_design(args):
     """Run complete primer design pipeline (all 4 steps)"""
     check_kmer_counter_available(getattr(args, "json_file", None))
@@ -717,42 +744,32 @@ def run_design(args):
 
     _apply_design_defaults(args)
 
-    # Run each step sequentially
+    # Each step runs under its own name, so a failure record says which step
+    # failed. The calls stay explicit: `test_every_cli_option_has_an_effect`
+    # follows handlers by name.
     try:
-        if start_step <= 1 <= stop_step:
-            logger.info("=" * 80)
-            logger.info("COUNT-KMERS: K-mer preprocessing")
-            logger.info("=" * 80)
+        if _design_step_begins(args, 1, "count-kmers", start_step, stop_step):
             run_step1(args)
-
-        if start_step <= 2 <= stop_step:
-            logger.info("=" * 80)
-            logger.info("FILTER: Candidate primer filtering")
-            logger.info("=" * 80)
+            _design_step_ends(args)
+        if _design_step_begins(args, 2, "filter", start_step, stop_step):
             run_step2(args)
-
-        if start_step <= 3 <= stop_step:
-            logger.info("=" * 80)
-            logger.info("SCORE: Amplification efficacy scoring")
-            logger.info("=" * 80)
+            _design_step_ends(args)
+        if _design_step_begins(args, 3, "prepare-candidates", start_step, stop_step):
             run_step3(args)
-
-        if start_step <= 4 <= stop_step:
-            logger.info("=" * 80)
-            logger.info("OPTIMIZE: Primer set optimization")
-            logger.info("=" * 80)
-            run_step4(args)
+            _design_step_ends(args)
+        if _design_step_begins(args, 4, "optimize", start_step, stop_step):
+            run_step4(args)  # clears every record itself on success
 
         logger.info("=" * 80)
         logger.info("Pipeline complete!")
         logger.info("=" * 80)
 
     except Exception as e:
-        logger.error(f"Pipeline failed at step: {e}")
-        import traceback
-
-        traceback.print_exc()
-        sys.exit(1)
+        # Re-raised, not exited: the command boundary writes the failure record
+        # under `args.current_step`. Exiting here, as this did until 2026-11-23,
+        # left no record, and `export` then shipped the previous run's panel.
+        logger.error(f"Pipeline failed at step {getattr(args, 'current_step', '?')}: {e}")
+        raise
 
 
 def _add_calibrate_reach_parser(subparsers):

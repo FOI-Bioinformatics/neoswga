@@ -63,6 +63,11 @@ from neoswga.cli._failure import (
 )
 from neoswga.cli._failure import report_design_failure as _report_design_failure  # noqa: F401
 from neoswga.cli._failure import write_failure_artifact as _write_failure_artifact
+from neoswga.cli._failure import (
+    PIPELINE_COMMANDS,
+    record_pipeline_failure,
+    run_pipeline_command,
+)
 from neoswga.core.exceptions import DesignError, StepPrerequisiteError  # noqa: F401
 
 # Setup logging
@@ -393,7 +398,10 @@ def main():
     command_func = commands.get(args.command)
     if command_func:
         try:
-            command_func(args)
+            if args.command in PIPELINE_COMMANDS:
+                run_pipeline_command(args, command_func)
+            else:
+                command_func(args)
         except KeyboardInterrupt:
             # An interrupted run keeps its own state. It is not a finished run
             # that happened to stop early, and nothing it holds is recommendable.
@@ -410,10 +418,12 @@ def main():
             _report_design_failure(args, e)
             sys.exit(1)
         except FileNotFoundError as e:
+            record_pipeline_failure(args, e)
             logger.error(f"File not found: {e}")
             logger.error("Check that all genome files and data paths exist.")
             sys.exit(1)
         except KeyError as e:
+            record_pipeline_failure(args, e)
             logger.error(f"Missing required parameter: {e}")
             logger.error(
                 "Run 'neoswga init --genome target.fasta' to create a complete params.json"
@@ -423,6 +433,7 @@ def main():
             )
             sys.exit(1)
         except (ValueError, TypeError) as e:
+            record_pipeline_failure(args, e)
             logger.error(f"Invalid input: {e}")
             if getattr(args, "verbose", False):
                 import traceback
@@ -430,6 +441,7 @@ def main():
                 traceback.print_exc()
             sys.exit(1)
         except PermissionError as e:
+            record_pipeline_failure(args, e)
             logger.error(f"Permission denied: {e}")
             logger.error("Check that the output directory is writable.")
             sys.exit(1)

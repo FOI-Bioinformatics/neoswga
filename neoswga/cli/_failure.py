@@ -48,6 +48,94 @@ __all__ = [
 #: refuse a panel no run had failed on.
 REPORT_ONLY_COMMANDS = frozenset({"improve-set", "evaluate-set"})
 
+#: The four design steps in order. A record names one of them (or `design`,
+#: when written before 2026-11-23), and a step refuses to run while a record
+#: from an EARLIER step is present: its input is that step's stale output.
+PIPELINE_STEPS = ("count-kmers", "filter", "prepare-candidates", "optimize")
+PIPELINE_COMMANDS = frozenset(PIPELINE_STEPS) | {"design"}
+
+
+def failure_stage(args):
+    """The step a record names: the one `design` was running, else the command."""
+    return getattr(args, "current_step", None) or getattr(args, "command", "unknown")
+
+
+def upstream_failure(directory, step):
+    """Why `step` must not run here, or None.
+
+    A record from a step earlier than `step` means `step`'s input may be that
+    step's previous output: `filter` failing left the last run's
+    `step2_df.csv`, which `prepare-candidates` then prepared and `optimize`
+    optimized, and the optimize step's success cleared the record. A record
+    naming `design` predates per-step records and is treated as upstream of
+    every step after the first. An unreadable record blocks.
+    """
+    if not directory:
+        return None
+    path = os.path.join(str(directory), "design_failure.json")
+    if not os.path.exists(path):
+        return None
+    try:
+        with open(path) as handle:
+            stage = json.load(handle).get("stage")
+    except (OSError, ValueError, AttributeError):
+        return f"{path} exists and cannot be read; re-run the design from its first failed step."
+    order = {name: i for i, name in enumerate(PIPELINE_STEPS)}
+    if stage == "design":
+        stage_index = 0
+    elif stage in order:
+        stage_index = order[stage]
+    else:
+        return None
+    if stage_index < order[step]:
+        return (
+            f"The last `{stage}` run in this directory failed ({path}), so the input "
+            f"to `{step}` is from an earlier run. Re-run `neoswga {stage}` first."
+        )
+    return None
+
+
+def refuse_after_upstream_failure(args, step):
+    """Exit when an earlier step's record is present, writing no record of its own.
+
+    The upstream record is the evidence; overwriting it with this step's name
+    would let this step's next success clear it.
+    """
+    reason = upstream_failure(_pipeline_directory(getattr(args, "json_file", None)), step)
+    if reason:
+        logger.error(reason)
+        args.refused_upstream = True
+        sys.exit(1)
+
+
+def record_pipeline_failure(args, error):
+    """Record `error` when a design step raised it; other commands leave none."""
+    if getattr(args, "command", None) in PIPELINE_COMMANDS:
+        write_failure_artifact(args, error)
+
+
+def run_pipeline_command(args, command_func):
+    """Run a design step under the record rules above.
+
+    Refuses `prepare-candidates` and `optimize` after an upstream failure,
+    records any nonzero exit, and on success clears a record naming this step
+    (`optimize` clears every record itself, in `run_step4`).
+    """
+    step = args.command
+    try:
+        if step in PIPELINE_STEPS[2:]:
+            refuse_after_upstream_failure(args, step)
+        command_func(args)
+    except SystemExit as exited:
+        if exited.code not in (0, None) and not getattr(args, "refused_upstream", False):
+            cause = exited.__cause__ or exited.__context__
+            write_failure_artifact(
+                args, cause or RuntimeError(f"{failure_stage(args)} exited with status {exited.code}")
+            )
+        raise
+    if step in PIPELINE_STEPS[:3]:
+        clear_failure_artifact(_pipeline_directory(getattr(args, "json_file", None)), stage=step)
+
 
 def _data_dir_from_params_file(json_file):
     """The output directory a params file names, resolved as a run resolves it.
@@ -70,7 +158,34 @@ def _data_dir_from_params_file(json_file):
     return os.path.join(os.path.dirname(os.path.abspath(json_file)), directory)
 
 
+def _pipeline_directory(json_file):
+    """The directory a design step writes to: the resolved run, else the params file.
+
+    Not `--data-dir`: the design steps take their directory from params.json
+    and ignore that flag, so a record placed by it would sit where nothing
+    reads it.
+    """
+    try:
+        from neoswga.core import parameter
+
+        directory = getattr(parameter, "data_dir", None)
+    except ImportError:  # pragma: no cover - the package is always importable
+        directory = None
+    return directory or _data_dir_from_params_file(json_file)
+
+
 def _failure_artifact_path(args):
+    directory = _resolve_directory(args)
+    if not directory:
+        return None
+    try:
+        os.makedirs(directory, exist_ok=True)
+    except OSError:
+        return None
+    return os.path.join(directory, "design_failure.json")
+
+
+def _resolve_directory(args):
     """Where a failure record is written, or None when there is no run directory.
 
     A command with no output directory still fails loudly on stderr; it just
@@ -112,13 +227,7 @@ def _failure_artifact_path(args):
         # left a DIRECTORY called `fit.json` behind.
         candidate = getattr(args, "output", None)
         directory = candidate if candidate and os.path.isdir(candidate) else None
-    if not directory:
-        return None
-    try:
-        os.makedirs(directory, exist_ok=True)
-    except OSError:
-        return None
-    return os.path.join(directory, "design_failure.json")
+    return directory or None
 
 
 def write_failure_artifact(args, error, run_state=RunState.FAILED):
@@ -141,14 +250,14 @@ def write_failure_artifact(args, error, run_state=RunState.FAILED):
         record = {
             "run_state": run_state,
             "termination": "interrupted",
-            "stage": getattr(args, "command", "unknown"),
+            "stage": failure_stage(args),
             "recommendation_written": False,
             "qualified": False,
         }
     else:
         record = describe_failure(
             error,
-            stage=getattr(args, "command", "unknown"),
+            stage=failure_stage(args),
             request_hash=getattr(args, "request_hash", None),
         )
         record["run_state"] = run_state
@@ -187,7 +296,7 @@ def report_design_failure(args, error, expected=True):
         logger.error("  failure record: %s", path)
 
 
-def clear_failure_artifact(directory):
+def clear_failure_artifact(directory, stage=None):
     """Remove a failure record once a run in this directory has succeeded.
 
     A record that is never cleared is as wrong as one that is never read: the
@@ -202,6 +311,18 @@ def clear_failure_artifact(directory):
     if not directory:
         return
     path = os.path.join(str(directory), DESIGN_FAILURE_FILENAME)
+    if stage is not None:
+        # Only a record this step wrote. A step succeeding says nothing about
+        # a later step that failed, nor about an earlier one it should have
+        # refused to run after.
+        try:
+            with open(path) as handle:
+                if json.load(handle).get("stage") != stage:
+                    return
+        except FileNotFoundError:
+            return
+        except (OSError, ValueError, AttributeError):
+            return
     try:
         os.remove(path)
     except FileNotFoundError:
