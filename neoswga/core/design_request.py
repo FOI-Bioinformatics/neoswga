@@ -702,8 +702,17 @@ def resolve_design_request(params: Mapping[str, Any]) -> DesignRequest:
     constraints = _resolve_constraints(params, has_background, sources)
     policy = _resolve_concentration(params, sources)
 
-    min_k = int(params.get("min_k", 6))
-    max_k = int(params.get("max_k", 12))
+    # Defaulted from the polymerase, as `get_params` defaults them. A fixed
+    # 6-12 here refused every equiphi29, bst and klenow file that `filter` had
+    # just run with the polymerase's own range.
+    from .registry.views import primer_length_ranges
+
+    k_default = primer_length_ranges().get(polymerase, (6, 12))
+    for key, value in (("min_k", k_default[0]), ("max_k", k_default[1])):
+        if key not in params:
+            sources[key] = f"polymerase:{polymerase}"
+    min_k = int(params.get("min_k", k_default[0]))
+    max_k = int(params.get("max_k", k_default[1]))
     if min_k > max_k:
         raise InvalidDesignRequest("min_k", f"is above max_k ({max_k})", min_k)
 
