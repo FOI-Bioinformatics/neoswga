@@ -83,23 +83,8 @@ KNOWN_INERT = {
         "enable_qa": "no reader on the evaluate-set path",
         "gpu_device": "GPU helpers are not reached by any stage; see CLAUDE.md",
         "no_gpu": "GPU helpers are not reached by any stage; see CLAUDE.md",
-        "reaction_temp": "no reader on the evaluate-set path",
         "use_gpu": "GPU helpers are not reached by any stage; see CLAUDE.md",
     },
-    "rescore-set": {
-        "betaine_m": "additive flags are not merged on this path",
-        "dmso_percent": "additive flags are not merged on this path",
-        "ethanol_percent": "additive flags are not merged on this path",
-        "formamide_percent": "additive flags are not merged on this path",
-        "json_file": "no reader; the handler uses the already-initialised globals",
-        "mg_conc": "additive flags are not merged on this path",
-        "na_conc": "additive flags are not merged on this path",
-        "tmac_m": "additive flags are not merged on this path",
-        "trehalose_m": "additive flags are not merged on this path",
-        "urea_m": "additive flags are not merged on this path",
-    },
-    "contract-set": {"json_file": "no reader; uses the already-initialised globals"},
-    "swap-primer": {"json_file": "no reader; uses the already-initialised globals"},
     "analyze-dimers": {"visualize": "no reader on the analyze-dimers path"},
     "analyze-set": {"simulate": "no reader on the analyze-set path"},
     "analyze-stability": {"temp": "no reader on the analyze-stability path"},
@@ -182,6 +167,14 @@ def _declared_merges(function):
         if isinstance(decorator, ast.Name) and decorator.id == "params_command":
             merged.add("json_file")
         if isinstance(decorator, ast.Call):
+            # `@params_command(seed=True)` keeps the default merge of
+            # `json_file`; the walker missed that and excused `-j` on three
+            # commands that read it (2026-11-24).
+            is_params_command = (
+                isinstance(decorator.func, ast.Name) and decorator.func.id == "params_command"
+            )
+            if is_params_command and not any(k.arg == "merge" for k in decorator.keywords):
+                merged.add("json_file")
             for keyword in decorator.keywords:
                 if keyword.arg == "merge" and isinstance(keyword.value, (ast.List, ast.Tuple)):
                     merged |= {
@@ -223,6 +216,25 @@ def _forwarded_calls(node, local):
             yield name, None, keyword.arg
 
 
+def _computed_reads(function_name):
+    """Options a function reads by a computed name, which the AST cannot see.
+
+    `build_reaction_conditions(args)` reads every `ReactionConditions` field
+    with `getattr(args, name)`. Nine `rescore-set` chemistry flags were excused
+    as unread through it while two tests showed them moving Tm (2026-11-24).
+    The set is taken from the constructor, so a new field is covered.
+    """
+    if function_name != "build_reaction_conditions":
+        return set()
+    import inspect
+
+    from neoswga.core.reaction_conditions import ReactionConditions
+
+    return set(list(inspect.signature(ReactionConditions.__init__).parameters)[1:]) | {
+        "reaction_temp"
+    }
+
+
 def options_read_by(handler_name, bound=("args",), depth=0, seen=None):
     """Every namespace attribute `handler_name` reads, following the namespace.
 
@@ -243,7 +255,7 @@ def options_read_by(handler_name, bound=("args",), depth=0, seen=None):
         local = {p for p in parameters if p in bound}
         if not local:
             continue
-        found |= _declared_merges(function)
+        found |= _declared_merges(function) | _computed_reads(handler_name)
         for node in ast.walk(function):
             found |= _namespace_reads(node, local)
             if (
@@ -415,3 +427,59 @@ def test_every_excused_command_still_exists(command):
     }
 
     assert command in names, f"KNOWN_INERT names {command!r}, which is not a command"
+
+
+# The phrases an option's help uses when it says the option does nothing.
+_SAYS_IT_DOES_NOTHING = (
+    "Not implemented",
+    "Accepted for compatibility",
+    "Recorded and not used",
+    "printing is the default",
+)
+
+
+def _excused_actions():
+    from neoswga.cli_unified import create_parser
+
+    parser = create_parser()
+    sub = next(a for a in parser._actions if a.__class__.__name__ == "_SubParsersAction")
+    for command, excused in sorted(KNOWN_INERT.items()):
+        for action in sub.choices[command]._actions:
+            if action.dest in excused:
+                yield command, action
+
+
+@pytest.mark.parametrize(
+    "command,action", list(_excused_actions()), ids=lambda v: getattr(v, "dest", v)
+)
+def test_an_excused_option_refuses_or_says_it_does_nothing(command, action, capsys):
+    """An excused option either says in its help that it does nothing, or
+    refuses when given. Most of the list read as working: `optimize
+    --polymerase bst` ran the file's enzyme, `rescore-set --mg-conc` had no
+    help at all, and a user had no way to tell (2026-11-23 sweep, tier 3)."""
+    from neoswga.cli_unified import create_parser
+
+    if any(phrase in (action.help or "") for phrase in _SAYS_IT_DOES_NOTHING):
+        return
+    option = action.option_strings[-1]
+    argv = [command, option]
+    if action.nargs != 0:
+        argv.append(str(action.choices[0]) if action.choices else "1")
+    with pytest.raises(SystemExit) as info:
+        create_parser().parse_args(argv)
+    assert info.value.code == 2
+    err = capsys.readouterr().err
+    assert option in err and "has no effect" in err, err
+
+
+def test_every_refused_option_is_one_no_path_reads():
+    """A refusal is only right for an option nothing reads. When an option is
+    wired, its KNOWN_INERT entry goes (the stale-entry test) and this makes its
+    refusal go with it."""
+    from neoswga.cli._unread_options import UNREAD_OPTIONS
+
+    extra = {
+        command: sorted(set(routes) - set(KNOWN_INERT.get(command, {})))
+        for command, routes in UNREAD_OPTIONS.items()
+    }
+    assert not {c: names for c, names in extra.items() if names}

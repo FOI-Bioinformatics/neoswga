@@ -106,7 +106,9 @@ def test_a_non_pipeline_command_writes_no_record(workspace, monkeypatch):
     assert _record(workspace) is None
 
 
-@pytest.mark.parametrize("command,handler", [("optimize", "run_step4"), ("prepare-candidates", "run_step3")])
+@pytest.mark.parametrize(
+    "command,handler", [("optimize", "run_step4"), ("prepare-candidates", "run_step3")]
+)
 def test_a_downstream_step_refuses_after_a_failed_filter(workspace, monkeypatch, command, handler):
     _write_record(workspace, "filter")
     ran = []
@@ -176,7 +178,10 @@ def test_design_that_runs_no_step_writes_no_record(workspace, monkeypatch):
     from neoswga.cli import commands
 
     monkeypatch.setattr(commands, "check_kmer_counter_available", lambda *a, **k: None)
-    assert _main(monkeypatch, "design", "-j", "params.json", "--start-from", "4", "--stop-at", "3") == 1
+    assert (
+        _main(monkeypatch, "design", "-j", "params.json", "--start-from", "4", "--stop-at", "3")
+        == 1
+    )
     assert _record(workspace) is None
 
 
@@ -229,10 +234,12 @@ def test_checks_read_the_directory_the_run_uses(tmp_path, monkeypatch):
 
 
 def test_a_record_goes_to_the_run_directory_not_data_dir_flag(workspace, monkeypatch):
+    """`-z` is not read by `optimize`, so since 2026-11-24 it refuses at
+    parsing: nothing runs and no record is written under the flag's path."""
+
     def _exits(args):
         sys.exit(1)
 
     monkeypatch.setattr(cli_unified, "run_step4", _exits)
-    _main(monkeypatch, "optimize", "-j", "params.json", "-z", "elsewhere")
-    assert _record(workspace) is not None
+    assert _main(monkeypatch, "optimize", "-j", "params.json", "-z", "elsewhere") == 2
     assert not (workspace.parent / "elsewhere" / "design_failure.json").exists()

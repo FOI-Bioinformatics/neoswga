@@ -648,7 +648,10 @@ def add_parsers(subparsers):
         "schema", help="Inspect or dump the canonical params.json schema"
     )
     schema_parser.add_argument(
-        "--dump", action="store_true", help="Print the params.json JSON Schema to stdout"
+        "--dump",
+        action="store_true",
+        help="Print the params.json JSON Schema to stdout. Accepted; printing is the default "
+        "when --output is not given",
     )
     schema_parser.add_argument(
         "--output",

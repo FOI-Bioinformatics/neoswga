@@ -659,8 +659,7 @@ Enrichment: 2^(30-20) = 1000X
 ```bash
 neoswga analyze-dimers \
   --primers SEQ1 SEQ2 SEQ3 \
-  --output ./dimers/ \
-  --visualize
+  --output ./dimers/
 ```
 
 **Step 4: Re-optimize if needed**

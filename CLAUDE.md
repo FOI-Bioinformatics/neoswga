@@ -177,7 +177,7 @@ measurements: implementation-notes.md.
 
 - **Filtering**: `min_k`/`max_k` (6-12; 12-18 for longer primers),
   `min_fg_freq` (1e-5), `max_bg_freq` (5e-6), `max_gini` (0.7),
-  `min_gini_sites` (3; the `--min-gini-sites` flag is inert, use the key),
+  `min_gini_sites` (3; the `--min-gini-sites` flag refuses, use the key),
   `max_primer` (500; bounds the shortlist, not what a design can reach),
   `candidate_retention` (`all_qc` default, or `post_gini`; `legacy` is refused).
 - **Thermodynamics**: `polymerase` (`phi29` 30 C, `equiphi29` 42-45 C, `bst`
