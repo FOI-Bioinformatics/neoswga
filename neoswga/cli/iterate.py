@@ -14,10 +14,10 @@ from neoswga.cli._common import (
     _apply_seed,
     _record_run_manifest,
     collect_primers_from_args,
+    design_genomes,
     design_position_cache,
     merge_args_to_parameter,
     params_command,
-    run_genomes,
     validate_params_json_file,
 )
 from neoswga.core.position_cache import MissingPositionsError
@@ -333,7 +333,7 @@ def run_expand_primers(args):
         # indistinguishable downstream from a perfectly specific panel.
         # Scans fixed primers the index does not hold; see `design_position_cache`.
         cache = design_position_cache(
-            fg_prefixes + bg_prefixes, all_primers, run_genomes(parameter)
+            fg_prefixes + bg_prefixes, all_primers, design_genomes(parameter)
         )
 
         context, candidate_source, candidates = _open_expansion_source(parameter, args, candidates)

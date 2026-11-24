@@ -1155,7 +1155,7 @@ def design_position_cache(prefixes, primers, genomes):
     return PositionCache(prefixes, list(primers), on_missing="error")
 
 
-def run_genomes(parameter):
+def design_genomes(parameter):
     """The run's foreground then background FASTAs, aligned with its prefixes."""
     return list(getattr(parameter, "fg_genomes", []) or []) + list(
         getattr(parameter, "bg_genomes", []) or []

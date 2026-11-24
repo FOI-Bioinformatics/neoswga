@@ -14,9 +14,9 @@ import sys
 from neoswga.cli._common import (
     check_kmer_counter_available,
     collect_primers_from_args,
+    design_genomes,
     design_position_cache,
     merge_args_to_parameter,
-    run_genomes,
     validate_params_json_file,
 )
 from neoswga.cli.pipeline import run_step1, run_step2, run_step3, run_step4
@@ -372,7 +372,7 @@ def run_analyze_coverage(args):
     # indistinguishable downstream from a perfectly specific panel.
     # Scans primers the index does not hold; see `design_position_cache`.
     cache = design_position_cache(
-        fg_prefixes + bg_prefixes, list(set(primers)) or ["A" * 8], run_genomes(parameter)
+        fg_prefixes + bg_prefixes, list(set(primers)) or ["A" * 8], design_genomes(parameter)
     )
     expander = PrimerExpander(
         position_cache=cache,
