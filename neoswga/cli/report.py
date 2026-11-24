@@ -283,6 +283,15 @@ def run_export(args):
 
     from neoswga.core.export import PrimerExporter, PrimerModifications
 
+    if getattr(args, "no_modifications", False) and args.pto_bonds is not None:
+        # The bonds were dropped without a word, so an order asked for with
+        # them went out bare (2026-11-24).
+        logger.error(
+            "--no-modifications and --pto-bonds contradict each other: "
+            "pass one. Bare sequences: --no-modifications; bonds: --pto-bonds N."
+        )
+        sys.exit(1)
+
     try:
         # Determine modification profile
         if getattr(args, "no_modifications", False):
