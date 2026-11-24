@@ -95,3 +95,18 @@ def test_both_reports_render_an_unmeasured_uniformity():
     for html in (summary, technical):
         assert "nan" not in html.lower().replace("nanomolar", "")
         assert "not measured" in html.lower()
+
+
+def test_the_json_report_writes_an_unmeasured_figure_as_null():
+    """Final review: the JSON report wrote NaN, which `jq` and JSON.parse
+    reject, beside a normalized score of 0.0 that read as a measured zero."""
+    import json
+
+    from neoswga.cli.report import _component_record
+
+    quality = calculate_quality_grade(_unmeasured_uniformity_metrics())
+    records = [_component_record(c) for c in quality.components]
+    json.dumps(records, allow_nan=False)
+    uniformity = next(r for r in records if r["name"] == "Uniformity")
+    assert uniformity["raw_value"] is None and uniformity["measured"] is False
+    assert uniformity["normalized_score"] is None

@@ -9,6 +9,23 @@ import sys
 logger = logging.getLogger(__name__)
 
 
+def _component_record(component):
+    """One grade component for the JSON report.
+
+    An unmeasured figure is null with `measured: false`. It was written as
+    NaN, which `jq` and JSON.parse reject, beside a 0.0 score (2026-11-24).
+    """
+    measured = getattr(component, "measured", True)
+    return {
+        "name": component.name,
+        "weight": component.weight,
+        "raw_value": component.raw_value if measured else None,
+        "normalized_score": component.normalized_score if measured else None,
+        "rating": component.rating,
+        "measured": measured,
+    }
+
+
 def run_report(args):
     """Generate comprehensive report for primer set"""
     from pathlib import Path
@@ -105,16 +122,7 @@ def run_report(args):
                 "recommendation_details": quality.recommendation_details,
                 "considerations": quality.considerations,
                 "primer_count": metrics.primer_count,
-                "components": [
-                    {
-                        "name": c.name,
-                        "weight": c.weight,
-                        "raw_value": c.raw_value,
-                        "normalized_score": c.normalized_score,
-                        "rating": c.rating,
-                    }
-                    for c in quality.components
-                ],
+                "components": [_component_record(c) for c in quality.components],
             }
 
             # Change extension if needed
@@ -194,25 +202,41 @@ def run_report(args):
         sys.exit(1)
 
 
-def _run_targets(results_dir, params_file=None):
-    """(params, target prefixes, target FASTAs) for the run being exported.
+def _params_for_results(results_dir, params_file=None):
+    """The params file of the run in `results_dir`.
 
-    The params file is `-j` when given, else `DIR/params.json`; relative paths
-    in it resolve against its own directory, as `plan-pool` resolves them.
+    `-j` when given; else `DIR/params.json`; else `./params.json` when its
+    `data_dir` is `results_dir`, which is the layout `neoswga init` writes.
     """
     from pathlib import Path
 
-    path = Path(params_file) if params_file else Path(results_dir) / "params.json"
+    if params_file:
+        return Path(params_file)
+    beside = Path(results_dir) / "params.json"
+    if beside.is_file():
+        return beside
+    here = Path("params.json")
+    if here.is_file():
+        data_dir = json.loads(here.read_text()).get("data_dir")
+        if data_dir and Path(data_dir).resolve() == Path(results_dir).resolve():
+            return here
+    raise ValueError(
+        f"BED/BedGraph export needs the run's params.json to find its target: "
+        f"none in {results_dir} or naming it as data_dir here. Pass it with -j."
+    )
+
+
+def _run_targets(results_dir, params_file=None):
+    """(params, target prefixes, target FASTAs) for the run being exported.
+
+    Paths are used as written, relative to the working directory, which is how
+    the pipeline reads them (`get_params` applies no base directory).
+    """
+    path = _params_for_results(results_dir, params_file)
     if not path.is_file():
-        raise ValueError(
-            f"BED/BedGraph export needs the run's params.json to find its target: "
-            f"{path} does not exist. Pass it with -j."
-        )
+        raise ValueError(f"{path} does not exist; pass the run's params.json with -j.")
     params = json.loads(path.read_text())
-    base = path.parent
-    prefixes = [str(base / p) for p in params.get("fg_prefixes") or []]
-    genomes = [str(base / g) for g in params.get("fg_genomes") or []]
-    return params, prefixes, genomes
+    return params, list(params.get("fg_prefixes") or []), list(params.get("fg_genomes") or [])
 
 
 def _load_primer_positions(results_dir, primers, params_file=None):
@@ -507,7 +531,12 @@ Examples:
         default="all",
         help="Export format (default: all)",
     )
-    export_parser.add_argument("-j", "--json-file", help="params.json for reaction conditions")
+    export_parser.add_argument(
+        "-j",
+        "--json-file",
+        help="The run's params.json: reaction conditions, and the target for BED/BedGraph "
+        "(default: DIR/params.json, else ./params.json when its data_dir is DIR)",
+    )
     export_parser.add_argument(
         "--modifications",
         choices=["none", "standard", "low-input"],

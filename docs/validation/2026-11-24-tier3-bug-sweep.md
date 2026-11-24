@@ -18,7 +18,7 @@ failed before the change.
 | 5 | The option ratchet excused 40 options as unread. Fourteen were read: `-j` on three commands through `@params_command(seed=True)`'s default merge; nine `rescore-set` chemistry flags plus `evaluate-set --reaction-temp` through `build_reaction_conditions`, which reads by computed name; and `optimize --polymerase` through a module-level alias (`_polymerase_from_params = polymerase_from_params`). Of the rest, most read as working: `count-kmers --polymerase bst` counted at the params.json enzyme's k range | the walker sees all three routes and those entries are gone; the 17 options below refuse when given and name the params.json key that does what they say; the nine whose help already says they do nothing stay accepted | `tests/test_every_cli_option_has_an_effect.py` (`test_an_excused_option_refuses_or_says_it_does_nothing`, `test_every_refused_option_is_one_no_path_reads`) |
 | 6 | `design` had no `-n`, `-m` or `--seed`; step 3 seeded from `--seed` alone | the three flags, `-m` with the optimize parser's choices; step 3 uses `resolve_seed` | `tests/test_design_takes_the_optimize_size_seed_and_method.py` |
 | 7 | `expand-primers` suggested `interpret`/`report`/`export -d OUT`, which read an optimize result it does not write | it also writes `expanded_primers.txt` and suggests `evaluate-set --primers-file` on it | `tests/test_expand_primers_advice_runs.py` |
-| 8 | BED/BedGraph export globbed every `*_positions.h5` in the directory (host indexes included, under the target's name), ignored `-j`, wrote no line for a primer the index lacked, and used length 0 when `fg_seq_lengths` was absent | target from `-j`, else `DIR/params.json`; unindexed primers scanned from the target FASTA or refused; a second target refused; length recorded, else measured, else refused | `tests/test_bed_export_reads_the_run.py` |
+| 8 | BED/BedGraph export globbed every `*_positions.h5` in the directory (host indexes included, under the target's name), ignored `-j`, wrote no line for a primer the index lacked, and used length 0 when `fg_seq_lengths` was absent | target from `-j`, else `DIR/params.json`, else `./params.json` when its `data_dir` is `DIR` (the `init` layout); paths read relative to the working directory, as the pipeline reads them; unindexed primers scanned from the target FASTA or refused; a second target refused; length recorded, else measured, else refused | `tests/test_bed_export_reads_the_run.py` |
 | 9 | `export --no-modifications --pto-bonds 3` dropped the bonds silently | refused | `tests/test_export_modification_flags_conflict.py` |
 | 10 | `validate` reported jellyfish alone, so a KMC3-only machine read as unable to count | both counters, and the one counting uses | `tests/test_validate_reports_both_counters.py` |
 | 11 | Tier-2 minor: `simulate` took only polymerase and temperature from the record, and logged the enzyme optimum | the whole recorded reaction, through the report's reconstruction; refuses when it cannot be rebuilt | `tests/test_simulate_cli_inputs.py` |
@@ -48,6 +48,17 @@ written to; it is refused with the rest.
 - The grade of a set with no measured Gini is computed over the other four
   components.
 - BED/BedGraph export refuses a run with more than one target.
+
+## Final review
+
+A fresh review found that `optimize --polymerase` is read (through a
+module-level alias the option walker did not follow) and had been refused; the
+walker now follows aliases and the flag is accepted again. It also found BED
+export resolving paths against the params file's directory, which the pipeline
+does not, and the JSON report writing `NaN` for an unmeasured uniformity; both
+fixed. `optimize --polymerase` sets the coverage reach and `--auto-size`
+chemistry while Tm and dimer conditions still come from params.json; that
+half-application predates this branch and is not addressed here.
 
 ## Not done
 
