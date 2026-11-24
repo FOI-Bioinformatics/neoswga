@@ -49,3 +49,49 @@ def test_a_host_with_no_sites_gets_no_gap_note():
 def test_a_measured_gap_still_gets_its_note():
     stats = {"pcDNA": {"strand_coverage_ratio": 0.5, "strand_alternation_gap_max": 9000}}
     assert "widest stretch" in _notes(stats, {"pcDNA": "target"}, 3000)
+
+
+def _unmeasured_uniformity_metrics():
+    from neoswga.core.report.metrics import _calculate_uniformity_metrics
+
+    primers = [
+        PrimerMetrics.from_row({"primer": "ACGTACGTAC", "gini": "nan"}),
+        PrimerMetrics.from_row({"primer": "TTGACCATGA", "gini": "nan"}),
+    ]
+    metrics = PipelineMetrics(primer_count=2)
+    metrics.primers = primers
+    metrics.uniformity = _calculate_uniformity_metrics(primers)
+    return metrics
+
+
+def test_the_set_gini_is_unknown_when_no_primer_measured_one():
+    """Deferred tier-2 minor: the set's mean and max Gini fell to 0.0, the
+    perfectly even value, when no primer had enough sites for one."""
+    uniformity = _unmeasured_uniformity_metrics().uniformity
+    assert uniformity.mean_gini is None and uniformity.max_gini is None
+
+
+def test_the_grade_leaves_an_unmeasured_uniformity_out():
+    quality = calculate_quality_grade(_unmeasured_uniformity_metrics())
+    uniformity = next(c for c in quality.components if c.name == "Uniformity")
+    assert uniformity.rating == "Not measured"
+    measured = [c for c in quality.components if c.name != "Uniformity"]
+    expected = sum(c.weight * c.normalized_score for c in measured) / sum(
+        c.weight for c in measured
+    )
+    assert abs(quality.composite_score - expected) < 1e-9
+
+
+def test_both_reports_render_an_unmeasured_uniformity():
+    from neoswga.core.report.executive_summary import ExecutiveSummary, render_executive_summary
+    from neoswga.core.report.technical_report import TechnicalReportData, render_technical_report
+
+    metrics = _unmeasured_uniformity_metrics()
+    quality = calculate_quality_grade(metrics)
+    summary = render_executive_summary(ExecutiveSummary(metrics, quality, "now"))
+    technical = render_technical_report(
+        TechnicalReportData(generated_at="now", metrics=metrics, quality=quality)
+    )
+    for html in (summary, technical):
+        assert "nan" not in html.lower().replace("nanomolar", "")
+        assert "not measured" in html.lower()

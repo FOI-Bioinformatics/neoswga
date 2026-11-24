@@ -429,7 +429,9 @@ def _render_summary_metrics(quality: QualityAssessment) -> str:
         progress_class = get_progress_class(comp.rating)
 
         # Format value based on component
-        if comp.name == "Coverage":
+        if not comp.measured:
+            value_str = "not measured"
+        elif comp.name == "Coverage":
             value_str = f"{comp.raw_value:.1%}"
         elif comp.name == "Specificity":
             value_str = enrichment_display(comp.raw_value)
@@ -957,9 +959,13 @@ def render_technical_report(data: TechnicalReportData, interactive: bool = False
     coverage_class = get_progress_class(coverage_comp.rating if coverage_comp else "")
 
     # Uniformity
-    gini = metrics.uniformity.max_gini if metrics.uniformity else 0
-    uniformity_score = 1 - gini
-    if uniformity_score >= 0.85:
+    gini = metrics.uniformity.max_gini if metrics.uniformity else None
+    uniformity_score = None if gini is None else 1 - gini
+    if uniformity_score is None:
+        # No primer has a measured Gini (Known Issue 9); it rendered as 0.000,
+        # perfectly even (2026-11-24).
+        uniformity_assessment = "Not measured - no primer has enough sites for a Gini index"
+    elif uniformity_score >= 0.85:
         uniformity_assessment = "Excellent - highly uniform binding"
     elif uniformity_score >= 0.7:
         uniformity_assessment = "Good - mostly uniform binding"
@@ -1188,8 +1194,10 @@ def render_technical_report(data: TechnicalReportData, interactive: bool = False
         total_sites=total_sites,
         sites_per_mb=sites_per_mb,
         mean_spacing=_format_spacing(total_sites, fg_size),
-        gini=gini,
-        uniformity_score=uniformity_score,
+        gini="not measured" if gini is None else f"{gini:.3f}",
+        uniformity_score=(
+            "not measured" if uniformity_score is None else f"{uniformity_score:.1%}"
+        ),
         uniformity_assessment=uniformity_assessment,
         gaps_html=gaps_html,
         # Specificity

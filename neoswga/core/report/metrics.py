@@ -380,8 +380,10 @@ class ThermodynamicMetrics:
 class UniformityMetrics:
     """Binding uniformity metrics."""
 
-    mean_gini: float = 0.0
-    max_gini: float = 0.0
+    # None when no primer has a measured Gini (Known Issue 9); 0.0 is the
+    # perfectly even value and graded as such until 2026-11-24.
+    mean_gini: float | None = None
+    max_gini: float | None = None
     mean_sites_per_bin: float = 0.0
     sites_std: float = 0.0
     coefficient_of_variation: float = 0.0
@@ -893,8 +895,8 @@ def _calculate_uniformity_metrics(
 
     ginis = [p.gini for p in primers if p.gini is not None and p.gini > 0]
 
-    mean_gini = sum(ginis) / len(ginis) if ginis else 0
-    max_gini = max(ginis) if ginis else 0
+    mean_gini = sum(ginis) / len(ginis) if ginis else None
+    max_gini = max(ginis) if ginis else None
 
     # Strand balance
     # Count primers favoring forward vs reverse strand
