@@ -9,6 +9,7 @@ import os
 import sys
 
 from neoswga.cli._common import (
+    PRESET_NAMES,
     _record_run_manifest,
     check_kmer_counter_available,
     collect_primers_from_args,
@@ -1488,19 +1489,7 @@ def add_parsers(subparsers):
     # Preset Conditions
     filter_parser.add_argument(
         "--preset",
-        choices=[
-            "standard_phi29",
-            "enhanced_equiphi29",
-            "high_gc_genome",
-            "long_primers_15mer",
-            "q_solution",
-            "gc_melt",
-            "crude_sample",
-            "low_temp",
-            "bst",
-            "klenow",
-            "extreme_gc",
-        ],
+        choices=PRESET_NAMES,
         help="Use predefined reaction conditions preset",
     )
 
