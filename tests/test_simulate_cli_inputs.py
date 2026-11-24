@@ -84,3 +84,30 @@ def test_a_non_acgt_primer_is_refused(tmp_path, genome, captured):
     with pytest.raises(SystemExit):
         _run("--primers", "ACGTXX", "--genome", str(genome), "-o", str(tmp_path / "o"))
     assert not captured
+
+
+def test_the_recorded_additives_and_buffer_are_simulated(tmp_path, genome, captured, caplog):
+    """Deferred tier-2 minor: only the polymerase and temperature came from the
+    record, so the simulated reaction dropped the additives and buffer the
+    design was optimized under, and the log named the enzyme's optimum."""
+    import logging
+
+    results = tmp_path / "results"
+    results.mkdir()
+    (results / "step4_improved_df.csv").write_text(f"primer,set_index\n{PRIMER},0\n")
+    write_manifest(
+        "optimize",
+        str(results),
+        effective_conditions={
+            "polymerase": "equiphi29",
+            "reaction_temp": 42.0,
+            "betaine_m": 1.0,
+            "mg_conc": 8.0,
+            "na_conc": 20.0,
+        },
+    )
+    with caplog.at_level(logging.INFO):
+        _run("--from-results", str(results), "--genome", str(genome), "-o", str(tmp_path / "o"))
+    conditions = captured["conditions"]
+    assert (conditions.betaine_m, conditions.mg_conc, conditions.na_conc) == (1.0, 8.0, 20.0)
+    assert "42.0" in caplog.text and "Optimal temperature" not in caplog.text
