@@ -234,7 +234,8 @@ def _resolve_plan_options(args, params, has_background):
     from neoswga.core.registry.views import primer_length_ranges
 
     length = args.primer_length
-    if length is None:
+    # A design grid names its own lengths, so it needs none from here.
+    if length is None and not getattr(args, "design_grid", None):
         polymerase = str(params.get("polymerase") or "phi29")
         low, high = primer_length_ranges().get(polymerase, (6, 12))
         low, high = int(params.get("min_k", low)), int(params.get("max_k", high))
@@ -252,7 +253,14 @@ def _resolve_plan_options(args, params, has_background):
             configured != "background-aware" or has_background
         )
         method = configured if usable else ("background-aware" if has_background else "hybrid")
-    return int(length), metric, method
+        if configured and not usable:
+            logger.warning(
+                "params.json sets optimization_method %r, which plan-pool does not run "
+                "here; using %s. Pass --method to choose.",
+                configured,
+                method,
+            )
+    return (None if length is None else int(length)), metric, method
 
 
 def run_plan_pool(args):
@@ -292,24 +300,6 @@ def run_plan_pool(args):
     args.primer_length, args.coverage_metric, args.method = _resolve_plan_options(
         args, params, has_background=bool(bg)
     )
-    pool_path = (
-        Path(args.candidates).resolve()
-        if args.candidates
-        else base / params.get("data_dir", ".") / "step3_df.csv"
-    )
-    candidates = pd.read_csv(pool_path)["primer"].astype(str).str.upper().tolist()
-    candidates = list(dict.fromkeys(p for p in candidates if len(p) == args.primer_length))
-    if not candidates:
-        raise ValueError(
-            f"No {args.primer_length}-mers in {pool_path}; run count-kmers/filter/score at this length first"
-        )
-    data_dir = base / params.get("data_dir", ".")
-    for prefix in fg + bg:
-        path = Path(f"{prefix}_{args.primer_length}mer_positions.h5")
-        if not path.is_file():
-            raise FileNotFoundError(
-                f"Missing position index {path}; run count-kmers and filter first"
-            )
     if args.min_size < 1 or args.max_size < args.min_size:
         raise ValueError("Require 1 <= min-size <= max-size")
     out = Path(args.output)
@@ -321,11 +311,6 @@ def run_plan_pool(args):
         raise ValueError(
             "Output directory is not empty; use a new directory to preserve earlier designs"
         )
-    cache = PositionCache(fg + bg, candidates, on_missing="error")
-    # Before any panel is evaluated, and for both references. An index written
-    # before record-aware geometry looks complete and silently lets coverage
-    # windows cross contig boundaries; a new design must not run on one.
-    cache.require_record_metadata(fg + bg)
     # One resolution, shared with `expand-primers`. Listing the fields here as
     # well is how `max_dimer_bp` came to be 3 in one place and 4 in another.
     context = design_context_from_params(params, coverage_reach_override=args.coverage_reach)
@@ -346,6 +331,38 @@ def run_plan_pool(args):
     )
     _ensure_optimizers_registered()
     method = args.method or ("background-aware" if bg else "hybrid")
+    if args.design_grid:
+        # Before the single-length pool and index are read: the grid names
+        # its own lengths, and a multi-length k range refused here (2026-11-24).
+        # A grid asks for several designs, so it does not produce the single
+        # `pool_plan` report the rest of this function writes.
+        _sweep_over_grid(
+            args, params, base, fg, bg, config, method, args.design_grid, out, conditions
+        )
+        return
+    pool_path = (
+        Path(args.candidates).resolve()
+        if args.candidates
+        else base / params.get("data_dir", ".") / "step3_df.csv"
+    )
+    candidates = pd.read_csv(pool_path)["primer"].astype(str).str.upper().tolist()
+    candidates = list(dict.fromkeys(p for p in candidates if len(p) == args.primer_length))
+    if not candidates:
+        raise ValueError(
+            f"No {args.primer_length}-mers in {pool_path}; run count-kmers/filter/score at this length first"
+        )
+    data_dir = base / params.get("data_dir", ".")
+    for prefix in fg + bg:
+        path = Path(f"{prefix}_{args.primer_length}mer_positions.h5")
+        if not path.is_file():
+            raise FileNotFoundError(
+                f"Missing position index {path}; run count-kmers and filter first"
+            )
+    cache = PositionCache(fg + bg, candidates, on_missing="error")
+    # Before any panel is evaluated, and for both references. An index written
+    # before record-aware geometry looks complete and silently lets coverage
+    # windows cross contig boundaries; a new design must not run on one.
+    cache.require_record_metadata(fg + bg)
     optimizer = OptimizerFactory.create(
         method,
         cache,
@@ -357,13 +374,6 @@ def run_plan_pool(args):
         conditions=conditions,
         polymerase=params.get("polymerase", "phi29"),
     )
-    if args.design_grid:
-        # A grid asks for several designs, so it does not produce the single
-        # `pool_plan` report the rest of this function writes.
-        _sweep_over_grid(
-            args, params, base, fg, bg, config, method, args.design_grid, out, conditions
-        )
-        return
 
     # Read the candidates through the shared source. The inventory holds every
     # candidate that cleared hard QC, and until now nothing in production read

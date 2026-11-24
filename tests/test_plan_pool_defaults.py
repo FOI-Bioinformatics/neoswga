@@ -61,3 +61,26 @@ def test_a_method_plan_pool_cannot_run_falls_back():
         _args(), {"min_k": 12, "max_k": 12, "optimization_method": "ensemble"}, has_background=False
     )
     assert method == "hybrid"
+
+
+def test_a_design_grid_is_not_refused_for_a_k_range():
+    """Deferred tier-2 minor: the grid names its own lengths, and the
+    single-length refusal stopped it before the grid was read."""
+    length, _, _ = _resolve_plan_options(
+        _args(design_grid="grid.json"), {"min_k": 8, "max_k": 12}, has_background=True
+    )
+    assert length is None
+
+
+def test_a_configured_method_plan_pool_cannot_run_is_named(caplog):
+    """Deferred tier-2 minor: `optimization_method: ensemble` fell back to
+    background-aware without a word."""
+    import logging
+
+    with caplog.at_level(logging.WARNING, logger="neoswga.cli.plan_pool"):
+        _, _, method = _resolve_plan_options(
+            _args(), {"min_k": 10, "max_k": 10, "optimization_method": "ensemble"},
+            has_background=True,
+        )
+    assert method == "background-aware"
+    assert "ensemble" in caplog.text and "background-aware" in caplog.text
