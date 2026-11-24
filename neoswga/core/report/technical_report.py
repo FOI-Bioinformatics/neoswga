@@ -915,6 +915,31 @@ def _render_gap_section(coverage):
     """
 
 
+def _uniformity_display(metrics) -> tuple[str, str, str]:
+    """(Gini, uniformity score, assessment) as the report prints them.
+
+    "not measured" when no primer has a measured Gini (Known Issue 9); it
+    rendered as 0.000, perfectly even, until 2026-11-24.
+    """
+    gini = metrics.uniformity.max_gini if metrics.uniformity else None
+    if gini is None:
+        return (
+            "not measured",
+            "not measured",
+            "Not measured - no primer has enough sites for a Gini index",
+        )
+    score = 1 - gini
+    if score >= 0.85:
+        assessment = "Excellent - highly uniform binding"
+    elif score >= 0.7:
+        assessment = "Good - mostly uniform binding"
+    elif score >= 0.55:
+        assessment = "Acceptable - some clustering"
+    else:
+        assessment = "Poor - significant clustering"
+    return f"{gini:.3f}", f"{score:.1%}", assessment
+
+
 def render_technical_report(data: TechnicalReportData, interactive: bool = False) -> str:
     """
     Render technical report to HTML.
@@ -959,20 +984,7 @@ def render_technical_report(data: TechnicalReportData, interactive: bool = False
     coverage_class = get_progress_class(coverage_comp.rating if coverage_comp else "")
 
     # Uniformity
-    gini = metrics.uniformity.max_gini if metrics.uniformity else None
-    uniformity_score = None if gini is None else 1 - gini
-    if uniformity_score is None:
-        # No primer has a measured Gini (Known Issue 9); it rendered as 0.000,
-        # perfectly even (2026-11-24).
-        uniformity_assessment = "Not measured - no primer has enough sites for a Gini index"
-    elif uniformity_score >= 0.85:
-        uniformity_assessment = "Excellent - highly uniform binding"
-    elif uniformity_score >= 0.7:
-        uniformity_assessment = "Good - mostly uniform binding"
-    elif uniformity_score >= 0.55:
-        uniformity_assessment = "Acceptable - some clustering"
-    else:
-        uniformity_assessment = "Poor - significant clustering"
+    gini, uniformity_score, uniformity_assessment = _uniformity_display(metrics)
 
     # Specificity
     enrichment = metrics.specificity.enrichment_ratio if metrics.specificity else 0
@@ -1194,10 +1206,8 @@ def render_technical_report(data: TechnicalReportData, interactive: bool = False
         total_sites=total_sites,
         sites_per_mb=sites_per_mb,
         mean_spacing=_format_spacing(total_sites, fg_size),
-        gini="not measured" if gini is None else f"{gini:.3f}",
-        uniformity_score=(
-            "not measured" if uniformity_score is None else f"{uniformity_score:.1%}"
-        ),
+        gini=gini,
+        uniformity_score=uniformity_score,
         uniformity_assessment=uniformity_assessment,
         gaps_html=gaps_html,
         # Specificity

@@ -133,6 +133,29 @@ def _resolve_reaction(args):
     return "phi29", None
 
 
+def _simulation_conditions(polymerase, recorded, optimal_temp):
+    """(ReactionConditions, where its temperature came from) for the simulation.
+
+    The whole recorded reaction when there is one, so its additives and buffer
+    are simulated too; otherwise the enzyme at its optimum. A record that
+    cannot be rebuilt refuses rather than falling back (2026-11-24).
+    """
+    if recorded:
+        from neoswga.core.report.metrics import _conditions_from_params
+
+        conditions = _conditions_from_params(recorded)
+        if conditions is None:
+            logger.error(
+                "The recorded reaction cannot be rebuilt (see the warning above); "
+                "pass --polymerase to simulate a reaction of your choosing."
+            )
+            sys.exit(1)
+        return conditions, "recorded"
+    from neoswga.core import reaction_conditions as rc
+
+    return rc.ReactionConditions(temp=optimal_temp, polymerase=polymerase), "enzyme optimum"
+
+
 def run_simulate(args):
     """Monte Carlo amplification simulation"""
     import json
@@ -140,7 +163,6 @@ def run_simulate(args):
 
     from Bio import SeqIO
 
-    from neoswga.core import reaction_conditions as rc
     from neoswga.core.genome_io import GenomeLoader
     from neoswga.core.replication_simulator import (
         Phi29Simulator,
@@ -249,20 +271,7 @@ def run_simulate(args):
         optimal_temp = poly_info["optimal_temp"]
         processivity = poly_info["processivity"]
 
-        if recorded:
-            from neoswga.core.report.metrics import _conditions_from_params
-
-            conditions = _conditions_from_params(recorded)
-            if conditions is None:
-                logger.error(
-                    "The recorded reaction cannot be rebuilt (see the warning above); "
-                    "pass --polymerase to simulate a reaction of your choosing."
-                )
-                sys.exit(1)
-            source = "recorded"
-        else:
-            conditions = rc.ReactionConditions(temp=optimal_temp, polymerase=polymerase)
-            source = "enzyme optimum"
+        conditions, source = _simulation_conditions(polymerase, recorded, optimal_temp)
 
         logger.info(f"Polymerase: {polymerase}")
         logger.info(f"  Temperature: {conditions.temp}C ({source})")
