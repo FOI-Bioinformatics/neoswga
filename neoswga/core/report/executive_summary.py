@@ -21,6 +21,7 @@ from neoswga.core.report.metrics import (
     collect_pipeline_metrics,
 )
 from neoswga.core.report.quality import (
+    GradeComponent,
     QualityAssessment,
     QualityGrade,
     calculate_quality_grade,
@@ -548,7 +549,7 @@ def _format_considerations(considerations: list[str]) -> str:
     </div>"""
 
 
-def _get_component_by_name(components: list, name: str) -> dict | None:
+def _get_component_by_name(components: list, name: str) -> GradeComponent | None:
     """Get a component by name."""
     for c in components:
         if c.name == name:
