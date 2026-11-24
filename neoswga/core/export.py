@@ -598,13 +598,13 @@ def build_conditions(
     """
     from neoswga.core.reaction_conditions import ReactionConditions
 
+    settings: dict[str, Any] = {
+        name: additives.get(name, 0.0) or 0.0 for name in _PROTOCOL_ADDITIVE_NAMES
+    }
+    settings.update({key: value for key, value in (buffer or {}).items() if key in BUFFER_KEYS})
     try:
         return ReactionConditions(
-            temp=temperature,
-            polymerase=polymerase,
-            mg_conc=mg_conc,
-            **{name: additives.get(name, 0.0) or 0.0 for name in _PROTOCOL_ADDITIVE_NAMES},
-            **{key: value for key, value in (buffer or {}).items() if key in BUFFER_KEYS},
+            temp=temperature, polymerase=polymerase, mg_conc=mg_conc, **settings
         )
     except ValueError as e:
         logger.warning(
