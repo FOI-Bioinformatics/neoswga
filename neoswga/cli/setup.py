@@ -27,15 +27,37 @@ def run_validate(args):
     return _run_validate_installation(args)
 
 
+def _counter_capability_lines():
+    """Both k-mer counters, and the one counting uses when none is configured.
+
+    This reported jellyfish alone, so a machine with only KMC3 -- the preferred
+    counter -- read as unable to count (2026-11-24). The order is
+    `kmer_backend.select_backend`'s: KMC, then jellyfish.
+    """
+    from neoswga.core.kmer_backend import JellyfishBackend, KmcBackend
+
+    kmc, jellyfish = KmcBackend().available(), JellyfishBackend().available()
+    lines = [
+        f"  KMC3: {'available' if kmc else 'not installed'}",
+        f"  Jellyfish: {'available' if jellyfish else 'not installed'}",
+    ]
+    if kmc or jellyfish:
+        used = "kmc" if kmc else "jellyfish"
+        lines.append(f"  K-mer counting will use: {used} (unless params.json sets kmer_counter)")
+    else:
+        lines.append("  K-mer counting cannot run: install KMC3 or jellyfish")
+    return lines
+
+
 def _run_validate_installation(args):
     """Run installation / environment validation tests."""
     from neoswga.core.gpu_acceleration import get_gpu_info, is_gpu_available
-    from neoswga.core.kmer_counter import check_jellyfish_available
     from neoswga.core.validation import ValidationSuite, quick_validation
 
     # Show system capabilities
     logger.info("System Capabilities:")
-    logger.info(f"  Jellyfish: {'Available' if check_jellyfish_available() else 'NOT FOUND'}")
+    for line in _counter_capability_lines():
+        logger.info(line)
     if is_gpu_available():
         gpu_info = get_gpu_info()
         logger.info(
