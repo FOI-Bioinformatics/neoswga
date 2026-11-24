@@ -939,7 +939,7 @@ def _record_run_manifest(
             extra=extra,
             # The CLI seed lives on args (--seed), not parameter; the previous
             # getattr(parameter, "seed") recorded None even when --seed was set.
-            seed=getattr(args, "seed", None) or getattr(parameter, "seed", None),
+            seed=manifest_seed(args, parameter),
         )
     except Exception as e:
         logger.debug(f"run_manifest write skipped: {e}")
@@ -1180,7 +1180,22 @@ def resolve_seed(args):
             value = json.load(handle).get("seed")
     except (OSError, ValueError, AttributeError):
         return None
-    return int(value) if isinstance(value, int) and not isinstance(value, bool) else None
+    if value is None:
+        return None
+    if isinstance(value, bool) or not isinstance(value, int):
+        # Hashed into the request but unusable as a seed: refusing is the
+        # alternative to recording a seed the run did not use.
+        raise ValueError(f"params.json seed must be an integer, got {value!r}")
+    return value
+
+
+def manifest_seed(args, parameter):
+    """The seed a step ran under, for its manifest entry: flag, then file."""
+    try:
+        seed = resolve_seed(args)
+    except ValueError:
+        seed = None
+    return seed if seed is not None else getattr(parameter, "seed", None)
 
 
 def positive_int(text):

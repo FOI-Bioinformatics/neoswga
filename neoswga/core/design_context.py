@@ -87,6 +87,7 @@ def design_context_from_params(
 
     from neoswga.core.base_optimizer import OptimizerConfig
     from neoswga.core.coverage import resolve_coverage_reach
+    from neoswga.core.parameter import default_tm_range
     from neoswga.core.reaction_conditions import build_reaction_conditions
 
     polymerase = params.get("polymerase", "phi29") or "phi29"
@@ -109,8 +110,11 @@ def design_context_from_params(
         coverage_reach=int(reach),
         max_dimer_bp=int(params.get("max_dimer_bp", 3)),
         max_self_dimer_bp=int(params.get("max_self_dimer_bp", 4)),
-        min_tm=float(params.get("min_tm", 20)),
-        max_tm=float(params.get("max_tm", 50)),
+        # From the polymerase, as `resolve_design_request` defaults them, so a
+        # plan-pool or library config optimizes under the window its recorded
+        # request describes (fixed at 20-50 C until 2026-11-24).
+        min_tm=float(params.get("min_tm", default_tm_range(str(polymerase))[0])),
+        max_tm=float(params.get("max_tm", default_tm_range(str(polymerase))[1])),
         fg_circular=bool(params.get("fg_circular", False)),
         polymerase=str(polymerase),
         max_dimer_dg=params.get("max_dimer_dg"),

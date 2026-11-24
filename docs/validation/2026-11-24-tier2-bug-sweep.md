@@ -44,7 +44,27 @@ Each fix has a test that failed before the change.
   no limits configured nothing changes.
 - A run that sets any of the search flags records a different `request_hash`
   from one that does not; a run that sets none keeps its hash.
-- The request for bst, equiphi29 or klenow records the polymerase's Tm window.
+- The request for bst, equiphi29 or klenow records the polymerase's Tm window,
+  so the hash of such a run with no `min_tm`/`max_tm` changes; phi29's does not.
+  `plan-pool` and the library configs now optimize under that window too.
+- `plan-pool` without `--method` follows params.json's `optimization_method`;
+  the Wolbachia example's README now passes `--method background-aware`, which
+  is what its saved result used.
+- `simulate` with no `--duration` now simulates its documented 60 minutes; it
+  ran 8 hours before. Default coverage figures change.
+- A params.json `seed` that is not an integer is refused rather than hashed and
+  ignored; the manifest records a seed taken from the file.
+
+## Final review
+
+A fresh review found four defects in this branch, fixed before merge
+(`tests/test_tier2_review_fixes.py`): the interactive report crashed on an
+unknown Gini; `analyze-coverage` without primers scanned every genome for a
+placeholder or refused naming it; `plan-pool` and the library configs kept the
+20-50 C Tm window; and the Wolbachia example no longer reproduced its result.
+Two further points were fixed with them: the manifest seed, and the set-editing
+commands now refuse ambiguity codes (A, C, G, T only), which would score as zero
+sites.
 
 ## Suite
 

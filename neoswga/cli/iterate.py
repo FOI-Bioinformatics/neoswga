@@ -436,6 +436,11 @@ def _load_primer_list(cli_primers, primers_file, name="primer"):
     from neoswga.cli._common import validate_primer_sequence
 
     validated = [validate_primer_sequence(p, name) for p in primers if p.strip()]
+    # A, C, G, T only: an ambiguity code matches nothing in the position index
+    # or an exact scan, so such a primer would score as zero sites.
+    for primer in validated:
+        if set(primer) - set("ACGT"):
+            raise ValueError(f"{name} {primer!r} contains a base other than A, C, G or T")
     primers = list(dict.fromkeys(validated))
     if len(primers) < len(validated):
         logger.warning(f"Dropped {len(validated) - len(primers)} duplicate {name}(s)")

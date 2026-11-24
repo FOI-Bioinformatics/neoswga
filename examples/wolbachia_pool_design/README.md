@@ -81,8 +81,13 @@ neoswga plan-pool -j examples/wolbachia_pool_design/params.json \
   --primer-length 12 --min-size 1 --max-size 64 \
   --coverage-targets 0.5 0.7 0.8 0.9 0.95 \
   --min-selectivity-density 10 --swap-max-evaluations 100000 \
+  --method background-aware \
   --title 'Wolbachia wMel against Drosophila' -o wmel_pool_plan
 ```
+
+`--method background-aware` is what the saved result used. Since 2026-11-24,
+without the flag `plan-pool` takes `optimization_method` from params.json,
+which here is `hybrid`.
 
 `prepare.py` resolves the portable parameter template to local absolute paths.
 Use a fresh report output directory for a new run. The saved comparison was

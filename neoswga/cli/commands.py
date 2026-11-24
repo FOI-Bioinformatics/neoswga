@@ -372,7 +372,7 @@ def run_analyze_coverage(args):
     # indistinguishable downstream from a perfectly specific panel.
     # Scans primers the index does not hold; see `design_position_cache`.
     cache = design_position_cache(
-        fg_prefixes + bg_prefixes, list(set(primers)) or ["A" * 8], design_genomes(parameter)
+        fg_prefixes + bg_prefixes, list(set(primers)), design_genomes(parameter)
     )
     expander = PrimerExpander(
         position_cache=cache,
