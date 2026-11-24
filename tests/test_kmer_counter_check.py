@@ -60,3 +60,12 @@ def test_jellyfish_one_is_still_refused(tmp_path, monkeypatch):
     monkeypatch.setattr("neoswga.core.kmer_counter.get_jellyfish_version", lambda: "1.1.11")
     with pytest.raises(SystemExit):
         check_kmer_counter_available(_params(tmp_path))
+
+
+def test_with_neither_installed_the_message_names_both(tmp_path, monkeypatch, caplog):
+    """With no counter requested, either one would do, so the refusal names
+    both rather than KMC alone (2026-11-23 review, M3)."""
+    _installed(monkeypatch)
+    with caplog.at_level("ERROR"), pytest.raises(SystemExit):
+        check_kmer_counter_available(_params(tmp_path))
+    assert "jellyfish" in caplog.text and "kmc" in caplog.text.lower()

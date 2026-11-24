@@ -87,12 +87,21 @@ def check_kmer_counter_available(json_file=None, need_jellyfish=False):
     if need_jellyfish and backend.name != "jellyfish":
         backends.append(JellyfishBackend())
     for required in backends:
-        if not required.available():
+        if required.available():
+            continue
+        if not name and required is backend:
+            # Nothing was requested, so either counter would do; say so.
+            logger.error(
+                "No k-mer counter found in PATH. Install either KMC3 "
+                "(conda install -c bioconda kmc) or jellyfish "
+                "(conda install -c bioconda jellyfish)."
+            )
+        else:
             logger.error(
                 f"The {required.name} k-mer counter is required but not found in "
                 f"PATH. {required.install_hint}"
             )
-            sys.exit(1)
+        sys.exit(1)
     if any(b.name == "jellyfish" for b in backends):
         version = get_jellyfish_version()
         if version and version.split(".")[0] == "1":
