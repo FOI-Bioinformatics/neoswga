@@ -423,12 +423,13 @@ def run_step3(args):
         setup_gpu_acceleration(args, parameter, quiet=args.quiet)
 
         # Reproducible scoring: seed the k-mer sampling RNG if requested.
-        if getattr(args, "seed", None) is not None:
+        seed = resolve_seed(args)  # --seed, else params.json's seed
+        if seed is not None:
             from neoswga.core.rf_preprocessing import set_kmer_sampling_seed
 
-            set_kmer_sampling_seed(args.seed)
+            set_kmer_sampling_seed(seed)
             if not args.quiet:
-                logger.info(f"K-mer sampling seeded with {args.seed} for reproducible scoring")
+                logger.info(f"K-mer sampling seeded with {seed} for reproducible scoring")
 
         # QA integration (per-invocation; see run_step1)
         parameter.enable_qa = bool(getattr(args, "enable_qa", False))
