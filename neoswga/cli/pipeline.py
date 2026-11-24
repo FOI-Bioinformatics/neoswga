@@ -1520,7 +1520,7 @@ def add_parsers(subparsers):
         "--max-bg-freq", type=float, help="Maximum background genome frequency (default: 5e-6)"
     )
     step2_trad_group.add_argument(
-        "--max-gini", type=float, help="Maximum Gini index for evenness (default: 0.6)"
+        "--max-gini", type=float, help="Maximum Gini index for evenness (default: 0.7)"
     )
     filter_parser.add_argument(
         "--min-gini-sites",
@@ -1534,10 +1534,14 @@ def add_parsers(subparsers):
         "--max-primer", type=int, help="Number of top primers to keep (default: 500)"
     )
     step2_trad_group.add_argument(
-        "--min-tm", type=float, help="Minimum melting temperature in C (default: 15)"
+        "--min-tm",
+        type=float,
+        help="Minimum Tm in C (default: from the polymerase)",
     )
     step2_trad_group.add_argument(
-        "--max-tm", type=float, help="Maximum melting temperature in C (default: 45)"
+        "--max-tm",
+        type=float,
+        help="Maximum Tm in C (default: from the polymerase)",
     )
     step2_trad_group.add_argument(
         "--max-dimer-bp", type=int, help="Maximum heterodimer base pairs (default: 3)"
