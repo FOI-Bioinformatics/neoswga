@@ -32,6 +32,7 @@ from neoswga.core.report.quality import (
     QualityGrade,
     calculate_quality_grade,
     enrichment_display,
+    uniformity_display,
 )
 from neoswga.core.report.utils import (
     CLAIM_LIMITS_CSS,
@@ -429,7 +430,9 @@ def _render_summary_metrics(quality: QualityAssessment) -> str:
         progress_class = get_progress_class(comp.rating)
 
         # Format value based on component
-        if comp.name == "Coverage":
+        if not comp.measured:
+            value_str = "not measured"
+        elif comp.name == "Coverage":
             value_str = f"{comp.raw_value:.1%}"
         elif comp.name == "Specificity":
             value_str = enrichment_display(comp.raw_value)
@@ -957,16 +960,7 @@ def render_technical_report(data: TechnicalReportData, interactive: bool = False
     coverage_class = get_progress_class(coverage_comp.rating if coverage_comp else "")
 
     # Uniformity
-    gini = metrics.uniformity.max_gini if metrics.uniformity else 0
-    uniformity_score = 1 - gini
-    if uniformity_score >= 0.85:
-        uniformity_assessment = "Excellent - highly uniform binding"
-    elif uniformity_score >= 0.7:
-        uniformity_assessment = "Good - mostly uniform binding"
-    elif uniformity_score >= 0.55:
-        uniformity_assessment = "Acceptable - some clustering"
-    else:
-        uniformity_assessment = "Poor - significant clustering"
+    gini, uniformity_score, uniformity_assessment = uniformity_display(metrics)
 
     # Specificity
     enrichment = metrics.specificity.enrichment_ratio if metrics.specificity else 0

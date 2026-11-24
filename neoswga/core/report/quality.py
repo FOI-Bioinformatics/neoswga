@@ -47,6 +47,9 @@ class GradeComponent:
     normalized_score: float  # 0-1 scale
     rating: str  # "Excellent", "Good", etc.
     description: str
+    # False for a figure nothing measured. It is left out of the composite,
+    # whose weights are renormalised over what was measured.
+    measured: bool = True
 
 
 @dataclass
@@ -167,7 +170,7 @@ def _generate_recommendation(
     considerations = []
 
     # Find weakest components
-    weak_components = [c for c in components if c.normalized_score < 0.6]
+    weak_components = [c for c in components if c.measured and c.normalized_score < 0.6]
 
     for comp in weak_components:
         if comp.name == "Coverage":
@@ -241,6 +244,31 @@ def enrichment_display(enrichment: float) -> str:
     if enrichment >= MAX_SELECTIVITY:
         return "no background binding detected"
     return f"{enrichment:.0f}x"
+
+
+def uniformity_display(metrics) -> tuple[str, str, str]:
+    """(Gini, uniformity score, assessment) as the report prints them.
+
+    "not measured" when no primer has a measured Gini (Known Issue 9); it
+    rendered as 0.000, perfectly even, until 2026-11-24.
+    """
+    gini = metrics.uniformity.max_gini if metrics.uniformity else None
+    if gini is None:
+        return (
+            "not measured",
+            "not measured",
+            "Not measured - no primer has enough sites for a Gini index",
+        )
+    score = 1 - gini
+    if score >= 0.85:
+        assessment = "Excellent - highly uniform binding"
+    elif score >= 0.7:
+        assessment = "Good - mostly uniform binding"
+    elif score >= 0.55:
+        assessment = "Acceptable - some clustering"
+    else:
+        assessment = "Poor - significant clustering"
+    return f"{gini:.3f}", f"{score:.1%}", assessment
 
 
 def calculate_quality_grade(metrics: PipelineMetrics) -> QualityAssessment:
@@ -321,18 +349,33 @@ def calculate_quality_grade(metrics: PipelineMetrics) -> QualityAssessment:
             gini = metrics.uniformity.measured_gini
         else:
             gini = metrics.uniformity.max_gini
-    uniformity = 1.0 - gini
-    rating, score = _rate_value(uniformity, UNIFORMITY_THRESHOLDS)
-    components.append(
-        GradeComponent(
-            name="Uniformity",
-            weight=0.20,
-            raw_value=uniformity,
-            normalized_score=score,
-            rating=rating,
-            description=f"Gini index {gini:.2f} (lower is more uniform)",
+    if gini is None:
+        # No primer had enough sites for a Gini (Known Issue 9). It read as
+        # 0.0, perfectly even, and graded Excellent (2026-11-24).
+        components.append(
+            GradeComponent(
+                name="Uniformity",
+                weight=0.20,
+                raw_value=float("nan"),
+                normalized_score=0.0,
+                rating="Not measured",
+                description="Not measured: no primer has enough sites for a Gini index",
+                measured=False,
+            )
         )
-    )
+    else:
+        uniformity = 1.0 - gini
+        rating, score = _rate_value(uniformity, UNIFORMITY_THRESHOLDS)
+        components.append(
+            GradeComponent(
+                name="Uniformity",
+                weight=0.20,
+                raw_value=uniformity,
+                normalized_score=score,
+                rating=rating,
+                description=f"Gini index {gini:.2f} (lower is more uniform)",
+            )
+        )
 
     # Thermodynamics (10%)
     tm_range = metrics.thermodynamics.tm_range if metrics.thermodynamics else 10.0
@@ -384,7 +427,10 @@ def calculate_quality_grade(metrics: PipelineMetrics) -> QualityAssessment:
     )
 
     # Calculate composite score
-    composite = sum(c.weight * c.normalized_score for c in components)
+    measured = [c for c in components if c.measured]
+    composite = sum(c.weight * c.normalized_score for c in measured) / sum(
+        c.weight for c in measured
+    )
 
     # Get grade
     grade = _score_to_grade(composite)

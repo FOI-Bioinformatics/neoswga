@@ -9,6 +9,7 @@ import os
 import sys
 
 from neoswga.cli._common import (
+    PRESET_NAMES,
     _record_run_manifest,
     check_kmer_counter_available,
     collect_primers_from_args,
@@ -134,8 +135,6 @@ def run_step1(args):
                 _run_jf_bl(bl_genome, bl_prefix, min_k, max_k)
             parameter.bl_genomes = bl_genomes_cli
             parameter.bl_prefixes = bl_prefixes_cli
-            if args.bl_penalty is not None:
-                parameter.bl_penalty = args.bl_penalty
             if args.max_bl_freq is not None:
                 parameter.max_bl_freq = args.max_bl_freq
 
@@ -346,8 +345,6 @@ def run_step2(args):
             parameter.bl_seq_lengths = _utility.get_all_seq_lengths(
                 fname_genomes=bl_genomes_cli, cpus=getattr(parameter, "cpus", 1)
             )
-            if args.bl_penalty is not None:
-                parameter.bl_penalty = args.bl_penalty
             if args.max_bl_freq is not None:
                 parameter.max_bl_freq = args.max_bl_freq
             if not args.quiet:
@@ -426,12 +423,13 @@ def run_step3(args):
         setup_gpu_acceleration(args, parameter, quiet=args.quiet)
 
         # Reproducible scoring: seed the k-mer sampling RNG if requested.
-        if getattr(args, "seed", None) is not None:
+        seed = resolve_seed(args)  # --seed, else params.json's seed
+        if seed is not None:
             from neoswga.core.rf_preprocessing import set_kmer_sampling_seed
 
-            set_kmer_sampling_seed(args.seed)
+            set_kmer_sampling_seed(seed)
             if not args.quiet:
-                logger.info(f"K-mer sampling seeded with {args.seed} for reproducible scoring")
+                logger.info(f"K-mer sampling seeded with {seed} for reproducible scoring")
 
         # QA integration (per-invocation; see run_step1)
         parameter.enable_qa = bool(getattr(args, "enable_qa", False))
@@ -1397,9 +1395,6 @@ def add_parsers(subparsers):
         help="Blacklist genome FASTA file(s) (penalty-weighted filtering)",
     )
     count_kmers_parser.add_argument(
-        "--bl-penalty", type=float, default=None, help="Blacklist penalty weight (default: 5.0)"
-    )
-    count_kmers_parser.add_argument(
         "--max-bl-freq",
         type=float,
         default=None,
@@ -1495,19 +1490,7 @@ def add_parsers(subparsers):
     # Preset Conditions
     filter_parser.add_argument(
         "--preset",
-        choices=[
-            "standard_phi29",
-            "enhanced_equiphi29",
-            "high_gc_genome",
-            "long_primers_15mer",
-            "q_solution",
-            "gc_melt",
-            "crude_sample",
-            "low_temp",
-            "bst",
-            "klenow",
-            "extreme_gc",
-        ],
+        choices=PRESET_NAMES,
         help="Use predefined reaction conditions preset",
     )
 
@@ -1520,7 +1503,7 @@ def add_parsers(subparsers):
         "--max-bg-freq", type=float, help="Maximum background genome frequency (default: 5e-6)"
     )
     step2_trad_group.add_argument(
-        "--max-gini", type=float, help="Maximum Gini index for evenness (default: 0.6)"
+        "--max-gini", type=float, help="Maximum Gini index for evenness (default: 0.7)"
     )
     filter_parser.add_argument(
         "--min-gini-sites",
@@ -1534,10 +1517,14 @@ def add_parsers(subparsers):
         "--max-primer", type=int, help="Number of top primers to keep (default: 500)"
     )
     step2_trad_group.add_argument(
-        "--min-tm", type=float, help="Minimum melting temperature in C (default: 15)"
+        "--min-tm",
+        type=float,
+        help="Minimum Tm in C (default: from the polymerase)",
     )
     step2_trad_group.add_argument(
-        "--max-tm", type=float, help="Maximum melting temperature in C (default: 45)"
+        "--max-tm",
+        type=float,
+        help="Maximum Tm in C (default: from the polymerase)",
     )
     step2_trad_group.add_argument(
         "--max-dimer-bp", type=int, help="Maximum heterodimer base pairs (default: 3)"
@@ -1596,9 +1583,6 @@ def add_parsers(subparsers):
     )
     step2_bl_group.add_argument(
         "--blacklist", "-bl", nargs="+", default=None, help="Blacklist genome FASTA file(s)"
-    )
-    step2_bl_group.add_argument(
-        "--bl-penalty", type=float, default=None, help="Blacklist penalty weight (default: 5.0)"
     )
     step2_bl_group.add_argument(
         "--max-bl-freq",

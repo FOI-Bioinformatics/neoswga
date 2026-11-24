@@ -246,6 +246,10 @@ Run "neoswga <command> --help" for details on a specific command.
     registry.add_parsers(subparsers)
     commands.add_parsers(subparsers)
 
+    from neoswga.cli._unread_options import refuse_unread_options
+
+    refuse_unread_options(subparsers)
+
     # Validate that all registered commands appear in COMMAND_GROUPS
     grouped_cmds = {cmd for _, cmds in COMMAND_GROUPS for cmd in cmds}
     registered_cmds = set(subparsers.choices.keys()) if hasattr(subparsers, "choices") else set()

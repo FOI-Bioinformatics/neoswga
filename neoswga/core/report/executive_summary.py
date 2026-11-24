@@ -21,6 +21,7 @@ from neoswga.core.report.metrics import (
     collect_pipeline_metrics,
 )
 from neoswga.core.report.quality import (
+    GradeComponent,
     QualityAssessment,
     QualityGrade,
     calculate_quality_grade,
@@ -441,7 +442,7 @@ EXECUTIVE_SUMMARY_TEMPLATE = """<!DOCTYPE html>
             </div>
             <div class="metric-card">
                 <div class="label">Uniformity</div>
-                <div class="value">{uniformity:.2f}</div>
+                <div class="value">{uniformity}</div>
                 <div class="progress-container">
                     <div class="progress-bar {uniformity_progress_class}"
                          style="width: {uniformity_bar_pct:.0f}%"></div>
@@ -548,7 +549,7 @@ def _format_considerations(considerations: list[str]) -> str:
     </div>"""
 
 
-def _get_component_by_name(components: list, name: str) -> dict | None:
+def _get_component_by_name(components: list, name: str) -> GradeComponent | None:
     """Get a component by name."""
     for c in components:
         if c.name == name:
@@ -669,11 +670,12 @@ def render_executive_summary(summary: ExecutiveSummary, interactive: bool = Fals
     enrichment_display = "no bg binding" if enrichment >= MAX_SELECTIVITY else f"{enrichment:.0f}x"
     enrichment_aggregate_label = _enrichment_aggregate_label(metrics)
     uniformity = uniformity_comp.raw_value if uniformity_comp else 0.5
+    uniformity_measured = uniformity_comp.measured if uniformity_comp else True
     dimer_risk = dimer_comp.raw_value if dimer_comp else 0
 
     # Progress bar percentages (capped at 100)
     enrichment_bar = min(100, (enrichment / ENRICHMENT_EXCELLENT_THRESHOLD) * 100)
-    uniformity_bar = uniformity * 100
+    uniformity_bar = uniformity * 100 if uniformity_measured else 0.0
     dimer_bar = (1 - dimer_risk) * 100  # Invert for display
 
     # Dimer risk label
@@ -794,7 +796,7 @@ def render_executive_summary(summary: ExecutiveSummary, interactive: bool = Fals
             specificity_comp.rating if specificity_comp else ""
         ),
         # Uniformity
-        uniformity=uniformity,
+        uniformity=f"{uniformity:.2f}" if uniformity_measured else "not measured",
         uniformity_bar_pct=uniformity_bar,
         uniformity_rating=uniformity_comp.rating if uniformity_comp else "N/A",
         uniformity_rating_class=get_rating_class(uniformity_comp.rating if uniformity_comp else ""),

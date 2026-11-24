@@ -851,6 +851,39 @@ def _add_design_parser(subparsers):
         help="Stop at step: 1=count-kmers, 2=filter, 3=score, 4=optimize",
     )
 
+    # Size, method and seed, as on `optimize`. `run_step4` reads all three off
+    # the shared namespace and `design_request_for_run` overlays them, so a
+    # `design` run records the same request as the equivalent `optimize` one.
+    # The method choices are copied from the optimize parser so the two lists
+    # cannot drift (2026-11-24).
+    from neoswga.cli._common import positive_int
+
+    optimize_methods = next(
+        a.choices
+        for a in subparsers.choices["optimize"]._actions
+        if a.dest == "optimization_method"
+    )
+    design_select_group = design_parser.add_argument_group("Selection")
+    design_select_group.add_argument(
+        "-m",
+        "--optimization-method",
+        choices=optimize_methods,
+        default=None,
+        help="Optimization method (default: params.json, else hybrid); as on optimize",
+    )
+    design_select_group.add_argument(
+        "-n",
+        "--num-primers",
+        type=positive_int,
+        help="Number of primers to select (default: from params.json or 6)",
+    )
+    design_select_group.add_argument(
+        "--seed",
+        type=int,
+        default=None,
+        help="Random seed for steps 3 and 4 (default: params.json seed, else unseeded)",
+    )
+
     # Set size. These reach `run_step4`, which is what `design` calls for step
     # 4, but the design subparser did not define them and the defaults
     # namespace below fixed auto_size False, so a one-shot user had no route to

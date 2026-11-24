@@ -418,9 +418,18 @@ def _limits_broken(optimizer, primers):
     that allows dimer relaxation must not lose its alternatives here.
     """
     from .panel_refinement import objective_for_optimizer
+    from .pool_objective import _LIMITS
 
-    violations = getattr(objective_for_optimizer(optimizer), "violations", None)
-    return tuple(violations(list(primers))) if violations is not None else ()
+    objective = objective_for_optimizer(optimizer)
+    violations = getattr(objective, "violations", None)
+    if violations is None:
+        return ()
+    # With no limit configured nothing is checked: `violations` also names an
+    # unmeasurable coverage, which dropped alternatives no limit asked about.
+    constraints = getattr(objective, "constraints", None)
+    if constraints is not None and all(getattr(constraints, f[0]) is None for f in _LIMITS):
+        return ()
+    return tuple(violations(list(primers)))
 
 
 def collect_alternative_sets(

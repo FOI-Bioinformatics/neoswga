@@ -39,11 +39,8 @@ def test_show_presets_lists_every_accepted_preset(capsys):
     """`show-presets` is the discovery command; anything --preset accepts must
     appear in it.
 
-    These are maintained as two separate lists -- PRESETS, built from a
-    four-entry optimizer-hints dict, plus a hardcoded `additional` list in
-    show_presets covering the other seven. Both currently agree with the
-    resolver, but nothing enforces it, so adding a preset to the resolver alone
-    would make it silently undiscoverable.
+    Both read `_common.PRESET_NAMES` since 2026-11-24; before that they were
+    two lists that nothing kept in step with the resolver.
     """
     from neoswga.cli.analysis import show_presets
 

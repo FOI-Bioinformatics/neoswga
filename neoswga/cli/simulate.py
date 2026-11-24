@@ -106,7 +106,7 @@ def _validated_primers(primers):
 
 
 def _resolve_reaction(args):
-    """(polymerase, recorded temperature or None) for this simulation.
+    """(polymerase, recorded reaction or None) for this simulation.
 
     `--polymerase` when given. Otherwise, for `--from-results DIR`, the
     reaction the optimize step recorded, so a design made for equiphi29 at
@@ -126,9 +126,34 @@ def _resolve_reaction(args):
                 f"Simulating the recorded reaction: {recorded['polymerase']}"
                 + (f" at {temp} C" if temp is not None else "")
             )
-            return str(recorded["polymerase"]), (float(temp) if temp is not None else None)
+            # The whole record, so the additives and buffer the design was
+            # optimized under are simulated too (2026-11-24).
+            return str(recorded["polymerase"]), recorded
     logger.info("No --polymerase and no recorded reaction; simulating phi29.")
     return "phi29", None
+
+
+def _simulation_conditions(polymerase, recorded, optimal_temp):
+    """(ReactionConditions, where its temperature came from) for the simulation.
+
+    The whole recorded reaction when there is one, so its additives and buffer
+    are simulated too; otherwise the enzyme at its optimum. A record that
+    cannot be rebuilt refuses rather than falling back (2026-11-24).
+    """
+    if recorded:
+        from neoswga.core.report.metrics import _conditions_from_params
+
+        conditions = _conditions_from_params(recorded)
+        if conditions is None:
+            logger.error(
+                "The recorded reaction cannot be rebuilt (see the warning above); "
+                "pass --polymerase to simulate a reaction of your choosing."
+            )
+            sys.exit(1)
+        return conditions, "recorded"
+    from neoswga.core import reaction_conditions as rc
+
+    return rc.ReactionConditions(temp=optimal_temp, polymerase=polymerase), "enzyme optimum"
 
 
 def run_simulate(args):
@@ -138,7 +163,6 @@ def run_simulate(args):
 
     from Bio import SeqIO
 
-    from neoswga.core import reaction_conditions as rc
     from neoswga.core.genome_io import GenomeLoader
     from neoswga.core.replication_simulator import (
         Phi29Simulator,
@@ -233,7 +257,7 @@ def run_simulate(args):
             logger.info(f"  {primer}: {total} binding sites")
 
         # Get reaction conditions based on polymerase type
-        polymerase, recorded_temp = _resolve_reaction(args)
+        polymerase, recorded = _resolve_reaction(args)
 
         # Get polymerase characteristics for optimal temperature
         from neoswga.core.reaction_conditions import POLYMERASE_CHARACTERISTICS
@@ -247,13 +271,11 @@ def run_simulate(args):
         optimal_temp = poly_info["optimal_temp"]
         processivity = poly_info["processivity"]
 
-        logger.info(f"Polymerase: {polymerase}")
-        logger.info(f"  Optimal temperature: {optimal_temp}C")
-        logger.info(f"  Processivity: {processivity:,} bp")
+        conditions, source = _simulation_conditions(polymerase, recorded, optimal_temp)
 
-        # Create conditions with appropriate temperature
-        temperature = recorded_temp if recorded_temp is not None else optimal_temp
-        conditions = rc.ReactionConditions(temp=temperature, polymerase=polymerase)
+        logger.info(f"Polymerase: {polymerase}")
+        logger.info(f"  Temperature: {conditions.temp}C ({source})")
+        logger.info(f"  Processivity: {processivity:,} bp")
 
         # Configure simulation
         duration = args.duration * 60.0  # Convert minutes to seconds

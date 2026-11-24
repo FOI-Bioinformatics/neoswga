@@ -21,14 +21,11 @@ class TestBlacklistCLIArguments:
                 "--blacklist",
                 "genome1.fna",
                 "genome2.fna",
-                "--bl-penalty",
-                "3.0",
                 "--max-bl-freq",
                 "0.001",
             ]
         )
         assert args.blacklist == ["genome1.fna", "genome2.fna"]
-        assert args.bl_penalty == 3.0
         assert args.max_bl_freq == 0.001
 
     def test_filter_blacklist_args(self):
@@ -108,5 +105,4 @@ class TestBlacklistCLIArguments:
         parser = create_parser()
         args = parser.parse_args(["count-kmers", "-j", "params.json"])
         assert args.blacklist is None
-        assert args.bl_penalty is None
         assert args.max_bl_freq is None

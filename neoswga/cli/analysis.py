@@ -10,8 +10,10 @@ import os
 import sys
 
 from neoswga.cli._common import (
-    PRESETS,
+    PRESET_ADDITIVE_FIELDS,
+    PRESET_NAMES,
     collect_primers_from_args,
+    load_preset_conditions,
     validate_primer_sequence,
 )
 
@@ -19,64 +21,20 @@ logger = logging.getLogger(__name__)
 
 
 def show_presets():
-    """Show available reaction condition presets"""
+    """Show the reaction each `--preset` applies, as it applies it."""
     print("\n" + "=" * 70)
-    print("Available Reaction Condition Presets")
+    print("Available Reaction Condition Presets (filter --preset NAME)")
     print("=" * 70 + "\n")
-
-    # Show presets from the PRESETS dict
-    for name, config in PRESETS.items():
+    for name in PRESET_NAMES:
+        applied = load_preset_conditions(name)
         print(f"{name}:")
-        print(f"  Temperature: {config['temperature']}C")
-        print(f"  Polymerase: {config['polymerase']}")
-        print(f"  DMSO: {config['dmso_percent']}%")
-        print(f"  Betaine: {config['betaine_m']} M")
-        print(f"  SSB: {config['ssb']}")
-        print(f"  Optimization: {config['optimization_method']}")
-        print()
-
-    # Show additional presets available via --preset but not in PRESETS dict
-    additional = [
-        "q_solution",
-        "gc_melt",
-        "crude_sample",
-        "low_temp",
-        "bst",
-        "klenow",
-        "extreme_gc",
-    ]
-    try:
-        from neoswga.core import reaction_conditions as rc
-
-        preset_funcs = {
-            "q_solution": ("Q-solution equivalent", rc.get_q_solution_equivalent),
-            "gc_melt": ("GC-melt conditions", rc.get_gc_melt_conditions),
-            "crude_sample": ("Crude sample conditions", rc.get_crude_sample_conditions),
-            "low_temp": ("Low temperature conditions", rc.get_low_temp_conditions),
-            "bst": ("Bst polymerase conditions", rc.get_bst_conditions),
-            "klenow": ("Klenow polymerase conditions", rc.get_klenow_conditions),
-            "extreme_gc": ("Extreme GC content conditions", rc.get_extreme_gc_conditions),
-        }
-        for name in additional:
-            desc, func = preset_funcs[name]
-            try:
-                cond = func()
-                print(f"{name}:")
-                print(f"  {desc}")
-                print(
-                    f"  Temperature: {cond.temp}C, Na+: {cond.na_conc} mM, Mg2+: {cond.mg_conc} mM"
-                )
-                if hasattr(cond, "dmso_percent") and cond.dmso_percent:
-                    print(f"  DMSO: {cond.dmso_percent}%")
-                if hasattr(cond, "betaine_m") and cond.betaine_m:
-                    print(f"  Betaine: {cond.betaine_m} M")
-                print()
-            except Exception:
-                print(f"{name}: {desc}")
-                print()
-    except ImportError:
-        for name in additional:
-            print(f"{name}: (use --preset {name} with filter command)")
+        print(f"  Temperature: {applied['reaction_temp']}C")
+        print(f"  Polymerase: {applied['polymerase']}")
+        print(f"  Mg2+: {applied['mg_conc']} mM, Na+: {applied['na_conc']} mM")
+        for key in PRESET_ADDITIVE_FIELDS:
+            if applied.get(key):
+                print(f"  {key}: {applied[key]}")
+        print(f"  SSB: {applied['ssb']}")
         print()
 
 

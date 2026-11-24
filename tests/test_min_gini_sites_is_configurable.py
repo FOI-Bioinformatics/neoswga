@@ -112,7 +112,7 @@ def test_a_six_element_task_still_works():
     assert PRIMER in result
 
 
-def test_the_cli_flag_parses_on_filter():
+def test_the_cli_flag_refuses_on_filter():
     """Parse a real command line rather than inspecting a parser's internals.
 
     The plan's version called `cli_pipeline.add_pipeline_parsers`, which does
@@ -122,10 +122,13 @@ def test_the_cli_flag_parses_on_filter():
     """
     from neoswga import cli_unified
 
-    args = cli_unified.create_parser().parse_args(
-        ["filter", "-j", "params.json", "--min-gini-sites", "2"]
-    )
-    assert args.min_gini_sites == 2
+    # The flag reached nothing (params.json wins on the filter path), so since
+    # 2026-11-24 it refuses and names the key instead of parsing.
+    with pytest.raises(SystemExit) as info:
+        cli_unified.create_parser().parse_args(
+            ["filter", "-j", "params.json", "--min-gini-sites", "2"]
+        )
+    assert info.value.code == 2
 
 
 def test_the_flag_beats_params_json(tmp_path):

@@ -237,10 +237,37 @@ def _report_expansion_summary(result, args, quiet):
     logger.info("")
     logger.info(f"Results saved to: {args.output}")
     logger.info("")
+    # interpret, report and export read an `optimize` result
+    # (step4_improved_df.csv), which this command does not write; suggesting
+    # them sent the user to three commands that fail here (2026-11-24).
+    primer_list = os.path.join(args.output, "expanded_primers.txt")
+    params = getattr(args, "json_file", None) or "params.json"
     logger.info("Next steps:")
-    logger.info(f"  neoswga interpret -d {args.output}    # assess the expanded set")
-    logger.info(f"  neoswga report -d {args.output} --level full   # full report")
-    logger.info(f"  neoswga export -d {args.output} -o order/      # order for synthesis")
+    logger.info(f"  neoswga evaluate-set -j {params} --primers-file {primer_list}")
+    logger.info(
+        "  (interpret, report and export read an optimize result; this set is "
+        f"listed one oligo per line in {primer_list})"
+    )
+
+
+def _save_expanded_primers(result, output):
+    """Write the expanded set as a table and as a list; return the list's path.
+
+    The list (one oligo per line) is what `--primers-file` reads. The table's
+    `primer,type` rows are not, so it was a file no next step could take.
+    """
+    import pandas as pd
+
+    pd.DataFrame(
+        {
+            "primer": result.combined_set,
+            "type": ["fixed"] * result.n_fixed + ["new"] * result.n_new,
+        }
+    ).to_csv(os.path.join(output, "expanded_primers.csv"), index=False)
+    path = os.path.join(output, "expanded_primers.txt")
+    with open(path, "w") as handle:
+        handle.write("\n".join(result.combined_set) + "\n")
+    return path
 
 
 def run_expand_primers(args):
@@ -251,8 +278,6 @@ def run_expand_primers(args):
     experimentally and user wants to add more to fill coverage gaps.
     """
     import json as json_module
-
-    import pandas as pd
 
     from neoswga.core import parameter
     from neoswga.core import pipeline as core_pipeline
@@ -383,14 +408,7 @@ def run_expand_primers(args):
         with open(result_file, "w") as f:
             json_module.dump(result.to_dict(), f, indent=2)
 
-        # Save primers as CSV
-        primers_file = os.path.join(args.output, "expanded_primers.csv")
-        pd.DataFrame(
-            {
-                "primer": result.combined_set,
-                "type": ["fixed"] * result.n_fixed + ["new"] * result.n_new,
-            }
-        ).to_csv(primers_file, index=False)
+        _save_expanded_primers(result, args.output)
 
         _report_expansion_summary(result, args, quiet)
 

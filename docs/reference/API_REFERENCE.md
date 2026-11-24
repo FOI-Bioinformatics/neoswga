@@ -320,7 +320,7 @@ neoswga analyze-genome --genome <genome.fasta> --output <dir>
 Analyze primer-dimer interactions.
 
 ```bash
-neoswga analyze-dimers --primers SEQ1 SEQ2 ... --output <dir> [--visualize]
+neoswga analyze-dimers --primers SEQ1 SEQ2 ... --output <dir>
 ```
 
 #### simulate

@@ -244,15 +244,38 @@ def test_analyze_set_no_longer_demands_unused_arguments():
     assert args.fg is None and args.fg_kmers is None and args.output is None
 
 
+def _reach_problems(source):
+    """What is wrong with how `source` sets a coverage reach, read from code.
+
+    The text check this replaced passed on the name in a docstring, so it held
+    nothing once the call moved to `resolve_coverage_reach` (2026-11-24).
+    """
+    import ast
+
+    tree = ast.parse(source)
+    called = {
+        node.func.id if isinstance(node.func, ast.Name) else getattr(node.func, "attr", None)
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Call)
+    }
+    problems = []
+    if not called & {"resolve_coverage_reach", "polymerase_extension_reach"}:
+        problems.append("no call resolves the reach")
+    if any(isinstance(node, ast.Constant) and node.value == 70000 for node in ast.walk(tree)):
+        problems.append("a hardcoded 70 kb reach")
+    return problems
+
+
 def test_coverage_commands_use_realistic_reach_not_processivity():
     """contract-set and rescore-set both scored coverage at 70 kb."""
     import inspect
 
     from neoswga.cli import iterate
 
-    src = inspect.getsource(iterate)
-    assert "70000" not in src and "70_000" not in src, (
-        "a hardcoded 70 kb reach is back; coverage must use "
-        "polymerase_extension_reach(..., coverage_metric='realistic')"
-    )
-    assert "polymerase_extension_reach" in src
+    source = inspect.getsource(iterate)
+    assert _reach_problems(source) == []
+    # The check fails on a module that only names the resolver in prose.
+    assert _reach_problems('"""Uses resolve_coverage_reach."""\nreach = 70000\n') == [
+        "no call resolves the reach",
+        "a hardcoded 70 kb reach",
+    ]

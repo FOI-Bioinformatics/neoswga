@@ -564,17 +564,28 @@ def setup_gpu_acceleration(args, parameter, quiet=False):
 # advertised 7% DMSO / 1.5 M betaine while applying 5% / 1.0 M. Three of four
 # presets described something the tool would not do. Deriving them removes the
 # divergence by construction.
-_PRESET_OPTIMIZER_HINTS = {
-    "standard_phi29": {"optimization_method": "hybrid", "target_set_size": 6},
-    "enhanced_equiphi29": {"optimization_method": "hybrid", "target_set_size": 6},
-    "long_primers_15mer": {"optimization_method": "hybrid", "target_set_size": 6},
-    "high_gc_genome": {"optimization_method": "hybrid", "target_set_size": 8},
-}
+# Every name `--preset` accepts, in the order `show-presets` lists them. The
+# filter parser takes its choices from here. `--preset` applies a reaction and
+# nothing else: the display table also carried an optimization method and a set
+# size, which `show-presets` printed and no command applied (2026-11-24).
+PRESET_NAMES = (
+    "standard_phi29",
+    "enhanced_equiphi29",
+    "high_gc_genome",
+    "long_primers_15mer",
+    "q_solution",
+    "gc_melt",
+    "crude_sample",
+    "low_temp",
+    "bst",
+    "klenow",
+    "extreme_gc",
+)
 
 
 def _build_presets():
     out = {}
-    for name, hints in _PRESET_OPTIMIZER_HINTS.items():
+    for name in PRESET_NAMES[:4]:
         applied = load_preset_conditions(name)
         out[name] = {
             "temperature": applied["reaction_temp"],
@@ -584,7 +595,6 @@ def _build_presets():
             "na_conc": applied["na_conc"],
             "mg_conc": applied["mg_conc"],
             "ssb": applied["ssb"],
-            **hints,
         }
     return out
 

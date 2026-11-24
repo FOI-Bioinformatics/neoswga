@@ -111,7 +111,7 @@ neoswga analyze-set --primers SEQ1 SEQ2 --fg target.fna --fg-kmers data/target -
 neoswga analyze-genome --genome target.fna --output analysis/
 
 # Dimer network analysis
-neoswga analyze-dimers --primers SEQ1 SEQ2 --output dimers/ --visualize
+neoswga analyze-dimers --primers SEQ1 SEQ2 --output dimers/
 ```
 
 ## Adding oligos to an existing set (in-silico + real BAM coverage)
