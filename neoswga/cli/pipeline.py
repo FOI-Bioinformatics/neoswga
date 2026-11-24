@@ -134,8 +134,6 @@ def run_step1(args):
                 _run_jf_bl(bl_genome, bl_prefix, min_k, max_k)
             parameter.bl_genomes = bl_genomes_cli
             parameter.bl_prefixes = bl_prefixes_cli
-            if args.bl_penalty is not None:
-                parameter.bl_penalty = args.bl_penalty
             if args.max_bl_freq is not None:
                 parameter.max_bl_freq = args.max_bl_freq
 
@@ -346,8 +344,6 @@ def run_step2(args):
             parameter.bl_seq_lengths = _utility.get_all_seq_lengths(
                 fname_genomes=bl_genomes_cli, cpus=getattr(parameter, "cpus", 1)
             )
-            if args.bl_penalty is not None:
-                parameter.bl_penalty = args.bl_penalty
             if args.max_bl_freq is not None:
                 parameter.max_bl_freq = args.max_bl_freq
             if not args.quiet:
@@ -1397,9 +1393,6 @@ def add_parsers(subparsers):
         help="Blacklist genome FASTA file(s) (penalty-weighted filtering)",
     )
     count_kmers_parser.add_argument(
-        "--bl-penalty", type=float, default=None, help="Blacklist penalty weight (default: 5.0)"
-    )
-    count_kmers_parser.add_argument(
         "--max-bl-freq",
         type=float,
         default=None,
@@ -1600,9 +1593,6 @@ def add_parsers(subparsers):
     )
     step2_bl_group.add_argument(
         "--blacklist", "-bl", nargs="+", default=None, help="Blacklist genome FASTA file(s)"
-    )
-    step2_bl_group.add_argument(
-        "--bl-penalty", type=float, default=None, help="Blacklist penalty weight (default: 5.0)"
     )
     step2_bl_group.add_argument(
         "--max-bl-freq",
