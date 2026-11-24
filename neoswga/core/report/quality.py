@@ -246,6 +246,31 @@ def enrichment_display(enrichment: float) -> str:
     return f"{enrichment:.0f}x"
 
 
+def uniformity_display(metrics) -> tuple[str, str, str]:
+    """(Gini, uniformity score, assessment) as the report prints them.
+
+    "not measured" when no primer has a measured Gini (Known Issue 9); it
+    rendered as 0.000, perfectly even, until 2026-11-24.
+    """
+    gini = metrics.uniformity.max_gini if metrics.uniformity else None
+    if gini is None:
+        return (
+            "not measured",
+            "not measured",
+            "Not measured - no primer has enough sites for a Gini index",
+        )
+    score = 1 - gini
+    if score >= 0.85:
+        assessment = "Excellent - highly uniform binding"
+    elif score >= 0.7:
+        assessment = "Good - mostly uniform binding"
+    elif score >= 0.55:
+        assessment = "Acceptable - some clustering"
+    else:
+        assessment = "Poor - significant clustering"
+    return f"{gini:.3f}", f"{score:.1%}", assessment
+
+
 def calculate_quality_grade(metrics: PipelineMetrics) -> QualityAssessment:
     """
     Calculate quality grade for a primer set.
