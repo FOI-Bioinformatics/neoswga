@@ -234,7 +234,8 @@
     "reaction_temp": {
       "type": "number",
       "minimum": 20.0,
-      "maximum": 70.0
+      "maximum": 70.0,
+      "description": "Reaction temperature (C). Polymerase-aware default is used if absent."
     },
     "na_conc": {
       "type": "number",
@@ -344,13 +345,13 @@
       "type": "number",
       "minimum": 0.0,
       "maximum": 100.0,
-      "default": 15.0
+      "description": "Lower primer Tm bound (C). Polymerase-aware default is used if absent."
     },
     "max_tm": {
       "type": "number",
       "minimum": 0.0,
       "maximum": 100.0,
-      "default": 45.0
+      "description": "Upper primer Tm bound (C). Polymerase-aware default is used if absent."
     },
     "refinement_method": {
       "type": "string",
@@ -544,8 +545,7 @@
       "type": "number",
       "minimum": 0.0,
       "maximum": 20.0,
-      "default": 0.0,
-      "description": "DTT concentration (mM). Recorded for protocol completeness; no melting-temperature term."
+      "description": "DTT concentration (mM). Recorded for protocol completeness; no melting-temperature term. Polymerase-aware default (4 mM; 1 mM for klenow) is used if absent; an explicit 0 is read as DTT omitted."
     },
     "ssb": {
       "type": "boolean",
