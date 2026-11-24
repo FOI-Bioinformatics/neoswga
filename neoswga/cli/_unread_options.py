@@ -1,8 +1,8 @@
 """Options a command declares and does not read refuse when given.
 
 Each entry was accepted and ignored. Several read as choosing something the run
-then did not use: `optimize --polymerase bst` optimized the params.json enzyme,
-and `count-kmers -x FASTA` counted the params.json genomes. An option a command cannot honour now
+then did not use: `count-kmers --polymerase bst` and `count-kmers -x FASTA`
+both ran what params.json named. An option a command cannot honour now
 stops the command and names what does what the option says (2026-11-24).
 
 `tests/test_every_cli_option_has_an_effect.py` holds the list of options no
@@ -33,10 +33,7 @@ UNREAD_OPTIONS = {
         "data_dir": _params_key("data_dir"),
         "polymerase": _params_key("polymerase"),
     },
-    "optimize": {
-        "data_dir": _params_key("data_dir"),
-        "polymerase": _params_key("polymerase"),
-    },
+    "optimize": {"data_dir": _params_key("data_dir")},
     "design": {"data_dir": _params_key("data_dir")},
     "evaluate-set": {
         "data_dir": _params_key("data_dir"),

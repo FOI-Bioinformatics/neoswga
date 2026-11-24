@@ -75,7 +75,6 @@ KNOWN_INERT = {
         "background_sampled_path": "no reader on the optimize path",
         "data_dir": "EmptyOptions; params.json wins",
         "max_optimization_time": "no reader on the optimize path",
-        "polymerase": "EmptyOptions; params.json wins",
     },
     "design": {"data_dir": "EmptyOptions; params.json wins"},
     "evaluate-set": {
@@ -100,7 +99,7 @@ def _index_functions():
     sharing a name are both searched, which can only widen what counts as a
     read -- the conservative direction for a test that fails on unread options.
     """
-    functions = {}
+    functions, aliases = {}, []
     for path in sorted(PACKAGE.rglob("*.py")):
         try:
             tree = ast.parse(path.read_text())
@@ -109,6 +108,21 @@ def _index_functions():
         for node in ast.walk(tree):
             if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
                 functions.setdefault(node.name, []).append(node)
+        # `_polymerase_from_params = polymerase_from_params` at module level:
+        # a call through the alias reached no definition, so `optimize
+        # --polymerase` read as unread while tests showed it winning over
+        # params.json (2026-11-24).
+        for node in tree.body:
+            if (
+                isinstance(node, ast.Assign)
+                and len(node.targets) == 1
+                and isinstance(node.targets[0], ast.Name)
+                and isinstance(node.value, ast.Name)
+            ):
+                aliases.append((node.targets[0].id, node.value.id))
+    for alias, target in aliases:
+        if target in functions:
+            functions.setdefault(alias, []).extend(functions[target])
     return functions
 
 

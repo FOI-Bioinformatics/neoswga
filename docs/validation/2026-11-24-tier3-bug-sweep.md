@@ -15,7 +15,7 @@ failed before the change.
 | 2 | `filter --max-gini` help said 0.6 (the default is 0.7); `--min-tm`/`--max-tm` said 15/45 | help states the resolved default | `tests/test_help_states_the_resolved_default.py` |
 | 3 | `--bl-penalty` on `count-kmers` and `filter` wrote a global nothing reads (the key was retired 2026-09-14) | flag removed; argparse refuses it | `tests/test_bl_penalty_is_retired.py` |
 | 4 | `show-presets` printed an optimization method and set size for four presets that `--preset` never applies, and listed the other seven by a second path | one `PRESET_NAMES` tuple feeds `filter --preset` and the listing, which reads each preset through `load_preset_conditions` | `tests/test_show_presets_matches_what_preset_applies.py` |
-| 5 | The option ratchet excused 40 options as unread. Thirteen were read: `-j` on three commands through `@params_command(seed=True)`'s default merge, and nine `rescore-set` chemistry flags plus `evaluate-set --reaction-temp` through `build_reaction_conditions`, which reads by computed name. Of the rest, most read as working: `optimize --polymerase bst` optimized the params.json enzyme | the walker sees both routes and those entries are gone; the 18 options below refuse when given and name the params.json key that does what they say; the nine whose help already says they do nothing stay accepted | `tests/test_every_cli_option_has_an_effect.py` (`test_an_excused_option_refuses_or_says_it_does_nothing`, `test_every_refused_option_is_one_no_path_reads`) |
+| 5 | The option ratchet excused 40 options as unread. Fourteen were read: `-j` on three commands through `@params_command(seed=True)`'s default merge; nine `rescore-set` chemistry flags plus `evaluate-set --reaction-temp` through `build_reaction_conditions`, which reads by computed name; and `optimize --polymerase` through a module-level alias (`_polymerase_from_params = polymerase_from_params`). Of the rest, most read as working: `count-kmers --polymerase bst` counted at the params.json enzyme's k range | the walker sees all three routes and those entries are gone; the 17 options below refuse when given and name the params.json key that does what they say; the nine whose help already says they do nothing stay accepted | `tests/test_every_cli_option_has_an_effect.py` (`test_an_excused_option_refuses_or_says_it_does_nothing`, `test_every_refused_option_is_one_no_path_reads`) |
 | 6 | `design` had no `-n`, `-m` or `--seed`; step 3 seeded from `--seed` alone | the three flags, `-m` with the optimize parser's choices; step 3 uses `resolve_seed` | `tests/test_design_takes_the_optimize_size_seed_and_method.py` |
 | 7 | `expand-primers` suggested `interpret`/`report`/`export -d OUT`, which read an optimize result it does not write | it also writes `expanded_primers.txt` and suggests `evaluate-set --primers-file` on it | `tests/test_expand_primers_advice_runs.py` |
 | 8 | BED/BedGraph export globbed every `*_positions.h5` in the directory (host indexes included, under the target's name), ignored `-j`, wrote no line for a primer the index lacked, and used length 0 when `fg_seq_lengths` was absent | target from `-j`, else `DIR/params.json`; unindexed primers scanned from the target FASTA or refused; a second target refused; length recorded, else measured, else refused | `tests/test_bed_export_reads_the_run.py` |
@@ -31,12 +31,14 @@ failed before the change.
 
 `count-kmers`: `-z/--data-dir`, `--polymerase`, `-x/--fasta-fore`,
 `-y/--fasta-back`, `-k/--kmer-fore`, `-l/--kmer-back`. `filter`: `-z`,
-`--min-gini-sites`. `prepare-candidates`, `optimize`: `-z`, `--polymerase`.
+`--min-gini-sites`. `prepare-candidates`: `-z`, `--polymerase`. `optimize`: `-z`.
 `design`: `-z`. `evaluate-set`: `-z`, `--enable-qa`. `analyze-dimers`:
 `--visualize`. `analyze-set`: `--simulate`. `analyze-stability`: `--temp`.
 Plus `--bl-penalty` (item 3). Each was accepted and changed nothing; a script
 passing one now stops with exit 2 and the route to use. The Task-5 commit
-message gives 22 for this list; that count predates finding four of them read.
+message gives 22 for this list; that count predates finding five of them read.
+`-z` on `evaluate-set` had one effect, the directory a failure record is
+written to; it is refused with the rest.
 
 ## Other behaviour that changes for a user
 
