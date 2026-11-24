@@ -4,7 +4,6 @@ primer-position and genome-length loaders). Extracted from cli_unified.
 
 import json
 import logging
-import os
 import sys
 
 logger = logging.getLogger(__name__)
@@ -195,59 +194,54 @@ def run_report(args):
         sys.exit(1)
 
 
-def _load_primer_positions(results_dir, primers):
-    """Load primer binding positions from HDF5 files in a results directory.
+def _run_targets(results_dir, params_file=None):
+    """(params, target prefixes, target FASTAs) for the run being exported.
 
-    Args:
-        results_dir: Path to results directory.
-        primers: List of primer sequences.
+    The params file is `-j` when given, else `DIR/params.json`; relative paths
+    in it resolve against its own directory, as `plan-pool` resolves them.
+    """
+    from pathlib import Path
+
+    path = Path(params_file) if params_file else Path(results_dir) / "params.json"
+    if not path.is_file():
+        raise ValueError(
+            f"BED/BedGraph export needs the run's params.json to find its target: "
+            f"{path} does not exist. Pass it with -j."
+        )
+    params = json.loads(path.read_text())
+    base = path.parent
+    prefixes = [str(base / p) for p in params.get("fg_prefixes") or []]
+    genomes = [str(base / g) for g in params.get("fg_genomes") or []]
+    return params, prefixes, genomes
+
+
+def _load_primer_positions(results_dir, primers, params_file=None):
+    """Each primer's binding sites on the run's one target, by strand.
+
+    The target comes from the params file (see `_run_targets`). The cache scans
+    the target FASTA for a primer the position index does not hold, and
+    refuses without one. It replaces a glob over every `*_positions.h5` in the
+    directory, which wrote a host's sites under the target's name and returned
+    no sites, silently, for a primer it could not find (2026-11-24).
 
     Returns:
         Dict mapping primer to list of (position, strand) tuples.
     """
-    import glob as glob_module
+    from neoswga.cli._common import design_position_cache
 
-    from neoswga.core.position_index import open_index
-    from neoswga.core.thermodynamics import reverse_complement
-
-    positions = {}
-    h5_files = glob_module.glob(os.path.join(results_dir, "*_positions.h5"))
-
-    if not h5_files:
-        params_path = os.path.join(results_dir, "params.json")
-        if os.path.exists(params_path):
-            with open(params_path) as f:
-                params = json.load(f)
-            fg_prefixes = params.get("fg_prefixes", [])
-            for prefix in fg_prefixes:
-                h5_files.extend(glob_module.glob(f"{prefix}_*_positions.h5"))
-
-    if not h5_files:
-        logger.warning(
-            "No position HDF5 files found. "
-            "BED/BedGraph export requires position data from the filter step."
+    _, prefixes, genomes = _run_targets(results_dir, params_file)
+    if len(prefixes) != 1:
+        raise ValueError(
+            f"BED/BedGraph export writes one target and the run lists "
+            f"{len(prefixes)} (fg_prefixes); each would need its own chromosome name."
         )
-        return {p: [] for p in primers}
-
-    rc_map = {p: reverse_complement(p) for p in primers}
-
-    for primer in primers:
-        sites = []
-        k = len(primer)
-        for h5_path in h5_files:
-            if f"_{k}mer_" not in h5_path:
-                continue
-            try:
-                with open_index(h5_path) as db:
-                    for pos in db.get(primer, ()):
-                        sites.append((int(pos), "forward"))
-                    for pos in db.get(rc_map[primer], ()):
-                        sites.append((int(pos), "reverse"))
-            except Exception as e:
-                logger.warning(f"Error reading {h5_path}: {e}")
-        positions[primer] = sites
-
-    return positions
+    prefix = prefixes[0]
+    cache = design_position_cache(prefixes, primers, genomes[:1] if genomes else [])
+    return {
+        primer: [(int(x), "forward") for x in cache.get_positions(prefix, primer, "forward")]
+        + [(int(x), "reverse") for x in cache.get_positions(prefix, primer, "reverse")]
+        for primer in primers
+    }
 
 
 def _blocking_validator_findings(results_dir):
@@ -263,24 +257,24 @@ def _blocking_validator_findings(results_dir):
     return blocking_validator_findings(results_dir)
 
 
-def _get_genome_length(results_dir):
-    """Get genome length from params.json in results directory.
+def _get_genome_length(results_dir, params_file=None):
+    """The target's length in bp: recorded in params.json, else measured.
 
-    Args:
-        results_dir: Path to results directory.
-
-    Returns:
-        Total genome length in bp, or 0 if not determinable.
+    Returned 0 when params.json carried no `fg_seq_lengths`, and BedGraph then
+    wrote no windows; an unknown length now refuses (2026-11-24).
     """
-    params_path = os.path.join(results_dir, "params.json")
-    if os.path.exists(params_path):
-        with open(params_path) as f:
-            params = json.load(f)
-        lengths = params.get("fg_seq_lengths", [])
-        if lengths:
-            return sum(lengths)
-    logger.warning("Could not determine genome length. Using 0.")
-    return 0
+    params, _, genomes = _run_targets(results_dir, params_file)
+    lengths = params.get("fg_seq_lengths") or []
+    if lengths:
+        return int(sum(lengths))
+    if genomes:
+        from neoswga.core.utility import get_all_seq_lengths
+
+        return int(sum(get_all_seq_lengths(fname_genomes=genomes, cpus=1)))
+    raise ValueError(
+        "BedGraph needs the target length: params.json records no fg_seq_lengths "
+        "and names no fg_genomes to measure it from."
+    )
 
 
 def run_export(args):
@@ -361,14 +355,15 @@ def run_export(args):
             output_dir.mkdir(parents=True, exist_ok=True)
 
             # Load positions from results directory
-            positions = _load_primer_positions(args.dir, exporter.primers)
+            params_file = getattr(args, "json_file", None)
+            positions = _load_primer_positions(args.dir, exporter.primers, params_file)
 
             if args.format == "bed":
                 bed_path = output_dir / f"{args.project}_binding_sites.bed"
                 exporter.export_bed(str(bed_path), positions, genome_name=args.genome_name)
                 print(f"Exported: {bed_path}")
             else:
-                genome_length = _get_genome_length(args.dir)
+                genome_length = _get_genome_length(args.dir, params_file)
                 bg_path = output_dir / f"{args.project}_coverage.bedgraph"
                 exporter.export_bedgraph(
                     str(bg_path),
