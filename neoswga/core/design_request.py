@@ -721,6 +721,10 @@ def resolve_design_request(params: Mapping[str, Any]) -> DesignRequest:
     from .registry.views import primer_length_ranges
 
     k_default = primer_length_ranges().get(polymerase, (6, 12))
+    # The Tm window likewise; it was fixed at 20-50 C until 2026-11-24.
+    from .parameter import default_tm_range
+
+    tm_default = default_tm_range(polymerase)
     for key, value in (("min_k", k_default[0]), ("max_k", k_default[1])):
         if key not in params:
             sources[key] = f"polymerase:{polymerase}"
@@ -743,8 +747,8 @@ def resolve_design_request(params: Mapping[str, Any]) -> DesignRequest:
         conditions=conditions,
         coverage_reach=reach,
         coverage_geometry=geometry,
-        min_tm=float(params.get("min_tm", 20)),
-        max_tm=float(params.get("max_tm", 50)),
+        min_tm=float(params.get("min_tm", tm_default[0])),
+        max_tm=float(params.get("max_tm", tm_default[1])),
         data_dir=str(params.get("data_dir") or "."),
         primer_lengths=tuple(range(min_k, max_k + 1)),
         candidate_retention=str(params.get("candidate_retention") or "all_qc"),
