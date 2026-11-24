@@ -8,6 +8,7 @@ for report generation.
 import csv
 import json
 import logging
+import math
 from collections.abc import Sequence
 from dataclasses import dataclass, field, fields
 from datetime import datetime
@@ -55,6 +56,21 @@ def amp_pred_is_available(primers: Sequence["PrimerMetrics"]) -> bool:
     restores the score and with it the column.
     """
     return any(p.amp_pred > 0 for p in primers)
+
+
+def _optional_float(value: Any) -> float | None:
+    """A finite float, or None for an absent, empty, NaN or unparsable value.
+
+    For quantities where 0.0 is itself a measurement, so a missing value must
+    not become one: `_safe_float` maps NaN to its default.
+    """
+    if value is None or (isinstance(value, str) and not value.strip()):
+        return None
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    return number if math.isfinite(number) else None
 
 
 def _safe_float(value: Any, default: float = 0.0) -> float:
@@ -139,7 +155,7 @@ class PrimerMetrics:
     bg_freq: float
     fg_sites: int
     bg_sites: int
-    gini: float
+    gini: float | None  # None: unmeasured (NaN below min_gini_sites, Known Issue 9)
     specificity: float
     amp_pred: float = 0.0
     dimer_score: float = 0.0
@@ -180,7 +196,7 @@ class PrimerMetrics:
             bg_freq=bg_freq,
             fg_sites=_safe_int(row.get("fg_count", row.get("fg_sites", 0))),
             bg_sites=_safe_int(row.get("bg_count", row.get("bg_sites", 0))),
-            gini=_safe_float(row.get("gini", row.get("gini_index", 0))),
+            gini=_optional_float(row.get("gini", row.get("gini_index"))),
             specificity=specificity,
             amp_pred=_normalize_amp_pred(
                 _safe_float(row.get("amp_pred", row.get("on.target.pred", 0)))
@@ -875,7 +891,7 @@ def _calculate_uniformity_metrics(
     if not primers:
         return UniformityMetrics()
 
-    ginis = [p.gini for p in primers if p.gini > 0]
+    ginis = [p.gini for p in primers if p.gini is not None and p.gini > 0]
 
     mean_gini = sum(ginis) / len(ginis) if ginis else 0
     max_gini = max(ginis) if ginis else 0
@@ -975,6 +991,10 @@ def _conditions_from_params(params: dict[str, Any], results_path: Path | None = 
 
     polymerase = str(params.get("polymerase", "phi29"))
     additives = {name: params[name] for name in _CONDITION_ADDITIVES if params.get(name)}
+    # The recorded buffer too; dropped until 2026-11-24 (see export.BUFFER_KEYS).
+    from neoswga.core.export import BUFFER_KEYS
+
+    additives.update({k: params[k] for k in BUFFER_KEYS if params.get(k) is not None})
     try:
         return ReactionConditions(
             temp=_safe_float(
@@ -1106,8 +1126,8 @@ def _backfill_primer_sites(
             continue
         primer.fg_sites = _safe_int(row.get("fg_count", row.get("fg_sites", 0)))
         primer.bg_sites = _safe_int(row.get("bg_count", row.get("bg_sites", 0)))
-        if not primer.gini:
-            primer.gini = _safe_float(row.get("gini", row.get("gini_index", 0)))
+        if primer.gini is None:
+            primer.gini = _optional_float(row.get("gini", row.get("gini_index")))
 
         if fg_len > 0 and bg_len > 0 and primer.fg_sites:
             # The same density ratio enrichment is graded on. A primer with no

@@ -16,6 +16,7 @@ from neoswga.cli._common import (
     merge_args_to_parameter,
     params_command,
     report_unimplemented_options,
+    resolve_seed,
     set_size_shortfall_advice,
     setup_gpu_acceleration,
     validate_effective_chemistry,
@@ -962,7 +963,7 @@ def run_step4(args):
 
         # Run unified optimization
         # Random seed for reproducibility (stochastic optimizers)
-        seed = getattr(args, "seed", None)
+        seed = resolve_seed(args)  # --seed, else params.json's seed
         if seed is not None:
             logger.info(f"Random seed: {seed}")
 
@@ -1153,7 +1154,7 @@ def run_step4(args):
 
                     # Run validation
                     validation_results = validate_network_predictions(
-                        primers, fg_network, bg_network, seed=getattr(args, "seed", None)
+                        primers, fg_network, bg_network, seed=seed
                     )
 
                     # Report results

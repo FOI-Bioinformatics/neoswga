@@ -14,6 +14,8 @@ import sys
 from neoswga.cli._common import (
     check_kmer_counter_available,
     collect_primers_from_args,
+    design_genomes,
+    design_position_cache,
     merge_args_to_parameter,
     validate_params_json_file,
 )
@@ -344,7 +346,6 @@ def run_analyze_coverage(args):
     from neoswga.core import parameter
     from neoswga.core import pipeline as core_pipeline
     from neoswga.core.export import export_gaps_to_bed
-    from neoswga.core.position_cache import PositionCache
     from neoswga.core.primer_expansion import PrimerExpander
 
     quiet = getattr(args, "quiet", False)
@@ -369,7 +370,10 @@ def run_analyze_coverage(args):
     # prefix the cache was not built over with an empty array, silently, so an
     # fg-only cache made every background lookup below read zero -- which is
     # indistinguishable downstream from a perfectly specific panel.
-    cache = PositionCache(fg_prefixes + bg_prefixes, list(set(primers)) or ["A" * 8])
+    # Scans primers the index does not hold; see `design_position_cache`.
+    cache = design_position_cache(
+        fg_prefixes + bg_prefixes, list(set(primers)), design_genomes(parameter)
+    )
     expander = PrimerExpander(
         position_cache=cache,
         fg_prefixes=fg_prefixes,

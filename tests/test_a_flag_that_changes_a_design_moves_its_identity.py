@@ -257,3 +257,70 @@ class TestTheThreadingIntoTheSearchIsPinned:
         ]
 
         assert len(calls) == 6, f"expected six call sites, found {len(calls)}"
+
+
+# --- 2026-11-24: flags with no params.json key -------------------------------
+# The overlay above covers flags that share a key with the schema. A flag such
+# as --minimize-primers or --application has no key, so it was absent from the
+# request entirely: two runs that differed only by it delivered different
+# panels under one request_hash (2026-11-23 sweep, tier 2).
+
+
+class TestSearchFlagsMoveTheHash:
+    @pytest.fixture
+    def params_file(self, tmp_path):
+        import json as _json
+
+        params = {
+            "schema_version": 2,
+            "fg_prefixes": [str(tmp_path / "t")],
+            "fg_seq_lengths": [100000],
+            "fg_genomes": [str(tmp_path / "t.fna")],
+            "polymerase": "phi29",
+            "reaction_temp": 30.0,
+            "num_primers": 6,
+            "target_set_size": 6,
+        }
+        path = tmp_path / "params.json"
+        path.write_text(_json.dumps(params))
+        return path
+
+    def test_every_optimize_flag_is_classified(self):
+        from neoswga.core.design_request import (
+            _CLI_OVERLAY_KEYS,
+            CLI_OVERLAY_EXCLUDED,
+            CLI_SEARCH_FLAGS,
+            NOT_A_DESIGN_SETTING,
+        )
+
+        dests = {a.dest for a in _optimize_parser()._actions if a.dest != "help"}
+        known = set(_CLI_OVERLAY_KEYS) | set(CLI_OVERLAY_EXCLUDED) | set(CLI_SEARCH_FLAGS)
+        known |= set(NOT_A_DESIGN_SETTING)
+        assert dests <= known, f"unclassified optimize flags: {sorted(dests - known)}"
+
+    def test_the_recorded_defaults_are_the_parser_defaults(self):
+        from neoswga.core.design_request import CLI_SEARCH_FLAGS
+
+        defaults = {a.dest: a.default for a in _optimize_parser()._actions}
+        assert {k: defaults[k] for k in CLI_SEARCH_FLAGS} == dict(CLI_SEARCH_FLAGS)
+
+    def test_a_set_search_flag_moves_the_hash(self, params_file):
+        from neoswga.core.design_request import effective_design_request
+
+        plain = effective_design_request(_Args(json_file=str(params_file)), None)
+        flagged = effective_design_request(
+            _Args(json_file=str(params_file), minimize_primers=True), None
+        )
+        assert plain.request_hash != flagged.request_hash
+
+    def test_no_search_flag_leaves_the_hash_as_it_was(self, params_file):
+        import json as _json
+
+        from neoswga.core.design_request import effective_design_request, resolve_design_request
+
+        file_only = resolve_design_request(_json.loads(params_file.read_text()))
+        defaults = effective_design_request(
+            _Args(json_file=str(params_file), application="enrichment", target_coverage=0.7),
+            None,
+        )
+        assert defaults.request_hash == file_only.request_hash

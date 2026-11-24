@@ -87,12 +87,21 @@ def check_kmer_counter_available(json_file=None, need_jellyfish=False):
     if need_jellyfish and backend.name != "jellyfish":
         backends.append(JellyfishBackend())
     for required in backends:
-        if not required.available():
+        if required.available():
+            continue
+        if not name and required is backend:
+            # Nothing was requested, so either counter would do; say so.
+            logger.error(
+                "No k-mer counter found in PATH. Install either KMC3 "
+                "(conda install -c bioconda kmc) or jellyfish "
+                "(conda install -c bioconda jellyfish)."
+            )
+        else:
             logger.error(
                 f"The {required.name} k-mer counter is required but not found in "
                 f"PATH. {required.install_hint}"
             )
-            sys.exit(1)
+        sys.exit(1)
     if any(b.name == "jellyfish" for b in backends):
         version = get_jellyfish_version()
         if version and version.split(".")[0] == "1":
@@ -930,7 +939,7 @@ def _record_run_manifest(
             extra=extra,
             # The CLI seed lives on args (--seed), not parameter; the previous
             # getattr(parameter, "seed") recorded None even when --seed was set.
-            seed=getattr(args, "seed", None) or getattr(parameter, "seed", None),
+            seed=manifest_seed(args, parameter),
         )
     except Exception as e:
         logger.debug(f"run_manifest write skipped: {e}")
@@ -1125,3 +1134,82 @@ def set_size_shortfall_advice(num_found, target_size, method=None):
     if method:
         lines.append(f"  - Trying a different optimizer (current: {method})")
     return lines
+
+
+def design_position_cache(prefixes, primers, genomes):
+    """A position cache that answers for every primer, or refuses.
+
+    The position index holds the filtered shortlist. A primer a user brings is
+    usually outside it, and the default cache read such a primer as binding
+    nowhere: `analyze-coverage` reported the whole genome as one gap and
+    `expand-primers` proposed a primer to fill it. With the genomes aligned to
+    the prefixes the cache scans for what the index lacks (as `evaluate-set`
+    does); without them it raises `MissingPositionsError` rather than answer
+    zero.
+    """
+    from neoswga.core.position_cache import PositionCache
+
+    prefixes, genomes = list(prefixes), list(genomes or [])
+    if genomes and len(genomes) == len(prefixes):
+        return PositionCache(prefixes, list(primers), genome_paths=genomes, on_missing="scan")
+    return PositionCache(prefixes, list(primers), on_missing="error")
+
+
+def design_genomes(parameter):
+    """The run's foreground then background FASTAs, aligned with its prefixes."""
+    return list(getattr(parameter, "fg_genomes", []) or []) + list(
+        getattr(parameter, "bg_genomes", []) or []
+    )
+
+
+def resolve_seed(args):
+    """The run's random seed: `--seed`, else params.json's `seed`, else None.
+
+    `resolve_design_request` hashes the file's `seed` into the request, and
+    `optimize` seeded from the flag alone until 2026-11-24, so a file declaring
+    a seed recorded it in the request identity and ran unseeded.
+    """
+    flag = getattr(args, "seed", None)
+    if flag is not None:
+        return flag
+    json_file = getattr(args, "json_file", None)
+    if not json_file:
+        return None
+    try:
+        with open(json_file) as handle:
+            value = json.load(handle).get("seed")
+    except (OSError, ValueError, AttributeError):
+        return None
+    if value is None:
+        return None
+    if isinstance(value, bool) or not isinstance(value, int):
+        # Hashed into the request but unusable as a seed: refusing is the
+        # alternative to recording a seed the run did not use.
+        raise ValueError(f"params.json seed must be an integer, got {value!r}")
+    return value
+
+
+def manifest_seed(args, parameter):
+    """The seed a step ran under, for its manifest entry: flag, then file."""
+    try:
+        seed = resolve_seed(args)
+    except ValueError:
+        seed = None
+    return seed if seed is not None else getattr(parameter, "seed", None)
+
+
+def positive_int(text):
+    """argparse type: an integer of at least 1.
+
+    `-n 0` read as "no flag" and `-n -3` reached the parameter module; the
+    params-file path already refused a size below 1.
+    """
+    import argparse
+
+    try:
+        value = int(text)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"not an integer: {text!r}") from None
+    if value < 1:
+        raise argparse.ArgumentTypeError(f"must be a positive integer, got {value}")
+    return value

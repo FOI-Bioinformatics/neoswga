@@ -95,3 +95,20 @@ def test_composite_reraises_a_member_design_error(cache_and_prefix):
     )
     with pytest.raises(ModelEvaluationError):
         composite.optimize(PRIMERS, target_size=2)
+
+
+def test_a_design_error_building_the_optimizer_reaches_the_boundary(monkeypatch):
+    """`_dispatch_optimizer` turned any construction failure into a failure
+    result, so a DesignError lost its type and fields and the record that
+    followed said only "No primer sets found" (2026-11-23 review, M5)."""
+    from neoswga.core import unified_optimizer
+
+    def _refuse(*_args, **_kwargs):
+        raise ReferenceDataError("host", "never indexed")
+
+    monkeypatch.setattr(unified_optimizer.OptimizerFactory, "create", staticmethod(_refuse))
+    with pytest.raises(ReferenceDataError):
+        unified_optimizer._dispatch_optimizer(
+            "hybrid", None, PRIMERS, ["t"], [LENGTH], [], [], 2,
+            None, None, None, False, "balanced", {},
+        )

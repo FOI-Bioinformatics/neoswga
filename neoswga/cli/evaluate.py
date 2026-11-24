@@ -35,6 +35,29 @@ from neoswga.cli._common import (
 logger = logging.getLogger(__name__)
 
 
+def _targets_circular(args):
+    """Whether the targets are scored as circular.
+
+    `--linear` says linear. Otherwise the params file's `fg_circular`, when
+    `-j` was given and sets it, which is what `optimize` scored the set under;
+    every site here read `not args.linear` alone until 2026-11-23, so a design
+    declared linear was evaluated as circular. Otherwise circular, the
+    command's documented default for plasmids and bacterial chromosomes.
+    """
+    if getattr(args, "linear", False):
+        return False
+    json_file = getattr(args, "json_file", None)
+    if json_file:
+        try:
+            with open(json_file) as handle:
+                params = json.load(handle)
+        except (OSError, ValueError):
+            params = {}
+        if isinstance(params, dict) and params.get("fg_circular") is not None:
+            return bool(params["fg_circular"])
+    return True
+
+
 def _resolve_sources(args):
     """Work out foreground prefixes, genomes and lengths from -j and/or --genome."""
     from neoswga.core import parameter
@@ -69,7 +92,9 @@ def _resolve_sources(args):
         lengths = list(getattr(parameter, "fg_seq_lengths", []) or [])
         genomes = genomes or list(getattr(parameter, "fg_genomes", []) or [])
     elif genomes:
-        applied = bootstrap_params_from_genome(genomes, args.output, circular=not args.linear)
+        applied = bootstrap_params_from_genome(
+            genomes, args.output, circular=_targets_circular(args)
+        )
         prefixes = applied["fg_prefixes"]
         lengths = applied["fg_seq_lengths"]
     else:
@@ -133,7 +158,7 @@ def _reference_specs(args, prefixes, genomes, lengths, bg_prefixes, bg_genomes, 
     from neoswga.core import parameter
     from neoswga.core.reference_panel_evaluation import ROLE_HOST, ROLE_TARGET, ReferenceSpec
 
-    circular_fg = not args.linear
+    circular_fg = _targets_circular(args)
     scan_bg = bool(getattr(args, "scan_background", False))
     # The same key the existing background block reads, so a host configured in
     # params.json is treated identically in both places.
@@ -509,7 +534,7 @@ def _variant_blocks(args, primers, per_primer, cache, foreground, reach):
         int(length),
         table,
         extension=int(reach),
-        circular=not args.linear,
+        circular=_targets_circular(args),
     )
     _attach_per_primer_intact(per_primer, block)
     return block
@@ -583,7 +608,7 @@ def run_evaluate_set(args):
         prefixes,
         primers,
         genome_paths=genomes if scan_ok else None,
-        circular=not args.linear,
+        circular=_targets_circular(args),
         on_missing="scan" if scan_ok else "warn",
     )
     if not scan_ok:
@@ -598,7 +623,7 @@ def run_evaluate_set(args):
         prefixes,
         lengths,
         extension=reach,
-        circular=not args.linear,
+        circular=_targets_circular(args),
     )
 
     # Three outcomes, and conflating them is precisely the bug this command
@@ -641,7 +666,7 @@ def run_evaluate_set(args):
     # mean spacing because the two published benchmarks disagree about which of
     # the three predicts success - see docs/validation/.
     mean_gap, max_gap, gap_gini = _gap_statistics(
-        cache, primers, prefixes, lengths, circular=not args.linear
+        cache, primers, prefixes, lengths, circular=_targets_circular(args)
     )
 
     panel_block, total_bg_sites, selectivity = _per_reference_blocks(

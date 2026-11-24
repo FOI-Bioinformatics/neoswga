@@ -572,12 +572,18 @@ PROTOCOL_ADDITIVES = (
 
 _PROTOCOL_ADDITIVE_NAMES = frozenset(name for name, _, _ in PROTOCOL_ADDITIVES)
 
+#: Buffer components the run manifest records and `ReactionConditions` takes.
+#: Dropped from the export's conditions until 2026-11-24, so its Tm was
+#: corrected for 50 mM Na+ whatever the design ran under.
+BUFFER_KEYS = ("na_conc", "k_conc", "nh4_conc", "dntp_conc", "dtt_mm")
+
 
 def build_conditions(
     polymerase: str,
     temperature: float,
     mg_conc: float | None,
     additives: dict[str, float],
+    buffer: dict[str, float] | None = None,
 ) -> Optional["ReactionConditions"]:
     """The reaction the exported numbers describe.
 
@@ -592,12 +598,13 @@ def build_conditions(
     """
     from neoswga.core.reaction_conditions import ReactionConditions
 
+    settings: dict[str, Any] = {
+        name: additives.get(name, 0.0) or 0.0 for name in _PROTOCOL_ADDITIVE_NAMES
+    }
+    settings.update({key: value for key, value in (buffer or {}).items() if key in BUFFER_KEYS})
     try:
         return ReactionConditions(
-            temp=temperature,
-            polymerase=polymerase,
-            mg_conc=mg_conc,
-            **{name: additives.get(name, 0.0) or 0.0 for name in _PROTOCOL_ADDITIVE_NAMES},
+            temp=temperature, polymerase=polymerase, mg_conc=mg_conc, **settings
         )
     except ValueError as e:
         logger.warning(
@@ -731,6 +738,7 @@ class PrimerExporter:
         temperature: float = 30.0,
         mg_conc: float | None = None,
         modifications: PrimerModifications | None = None,
+        buffer: dict[str, float] | None = None,
         **additives,
     ):
         """
@@ -743,6 +751,8 @@ class PrimerExporter:
             mg_conc: Mg2+ concentration (mM). None means this polymerase's
                 standard buffer; see `generate_protocol`.
             modifications: Primer modification config (default: standard profile)
+            buffer: Recorded values for any of `BUFFER_KEYS`; absent ones keep
+                `ReactionConditions`' defaults.
             **additives: Any key named in `PROTOCOL_ADDITIVES`
         """
         from neoswga.core.parameter import default_mg_conc
@@ -759,6 +769,9 @@ class PrimerExporter:
             name: additives.get(name, 0.0) or 0.0 for name in _PROTOCOL_ADDITIVE_NAMES
         }
         self.modifications = modifications or PrimerModifications.from_profile("standard")
+        self.buffer = {
+            k: v for k, v in (buffer or {}).items() if k in BUFFER_KEYS and v is not None
+        }
 
     def __getattr__(self, name):
         # The three additives that used to be attributes stay readable, so
@@ -841,12 +854,15 @@ class PrimerExporter:
             for name in _PROTOCOL_ADDITIVE_NAMES:
                 if name in params:
                     kwargs[name] = params[name]
+            kwargs["buffer"] = {k: params[k] for k in BUFFER_KEYS if params.get(k) is not None}
 
         return cls(primers, **kwargs)
 
     def conditions(self) -> Optional["ReactionConditions"]:
         """The reaction this design's Tm values are corrected for."""
-        return build_conditions(self.polymerase, self.temperature, self.mg_conc, self.additives)
+        return build_conditions(
+            self.polymerase, self.temperature, self.mg_conc, self.additives, self.buffer
+        )
 
     def export_fasta(self, output_path: str, **kwargs) -> None:
         """Export primers to FASTA format."""

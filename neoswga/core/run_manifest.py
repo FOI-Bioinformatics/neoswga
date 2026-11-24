@@ -187,10 +187,16 @@ def write_manifest(
                 if raw.strip():
                     try:
                         loaded = json.loads(raw)
-                        if isinstance(loaded, dict) and isinstance(loaded.get("steps"), list):
-                            existing = loaded
                     except json.JSONDecodeError:
-                        pass
+                        loaded = None
+                    if isinstance(loaded, dict) and isinstance(loaded.get("steps"), list):
+                        existing = loaded
+                    else:
+                        # Kept beside the new manifest rather than overwritten.
+                        # Until 2026-11-23 an unparsable file was replaced by
+                        # this step's entry alone, which erased every earlier
+                        # step's record, `effective_conditions` included.
+                        _preserve_unusable_manifest(manifest_path, raw)
 
                 existing["steps"].append(entry)
 
@@ -208,6 +214,22 @@ def write_manifest(
 
     logger.info(f"Run manifest updated: {manifest_path}")
     return manifest_path
+
+
+def _preserve_unusable_manifest(manifest_path: str, raw: str) -> None:
+    """Copy a manifest that cannot be appended to aside, and say where."""
+    stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%S%fZ")
+    kept = f"{manifest_path}.corrupt-{stamp}"
+    try:
+        with open(kept, "w") as handle:
+            handle.write(raw)
+    except OSError as e:
+        logger.warning(f"{manifest_path} could not be parsed and could not be kept: {e}")
+        return
+    logger.warning(
+        f"{manifest_path} could not be parsed; its contents were kept as {kept} "
+        f"and a new manifest was started."
+    )
 
 
 def read_effective_conditions(data_dir: str, step: str | None = None) -> dict[str, Any] | None:

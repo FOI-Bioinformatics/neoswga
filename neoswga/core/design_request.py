@@ -214,11 +214,23 @@ class DesignRequest:
     # `parameter.background_aggregate` still holds the raw value.
     background_aggregate: str = "sum"
 
+    # Added 2026-11-24. The search flags with no params.json key that this
+    # invocation set to a non-default value, as sorted (name, value) pairs;
+    # see `CLI_SEARCH_FLAGS`. Hashed only when non-empty, so a run that sets
+    # none keeps the identity it had before the field existed.
+    search_flags: tuple = ()
+
     # ---------------------------------------------------------------- hashing
+
+    def _hash_payload(self) -> dict[str, Any]:
+        payload = {name: _plain(getattr(self, name)) for name in _HASHED_FIELDS}
+        if not self.search_flags:
+            payload.pop("search_flags", None)
+        return payload
 
     def to_dict(self) -> dict[str, Any]:
         """A JSON-serializable form, including the hash it produces."""
-        payload = {name: _plain(getattr(self, name)) for name in _HASHED_FIELDS}
+        payload = self._hash_payload()
         payload["default_sources"] = dict(sorted(self.default_sources.items()))
         payload["request_hash"] = self.request_hash
         return payload
@@ -245,8 +257,9 @@ class DesignRequest:
         what it is, so two requests reaching the same chemistry by different
         routes describe the same design and must compare equal.
         """
-        payload = {name: _plain(getattr(self, name)) for name in _HASHED_FIELDS}
-        canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str)
+        canonical = json.dumps(
+            self._hash_payload(), sort_keys=True, separators=(",", ":"), default=str
+        )
         return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
     # ----------------------------------------------------------- concentration
@@ -708,6 +721,10 @@ def resolve_design_request(params: Mapping[str, Any]) -> DesignRequest:
     from .registry.views import primer_length_ranges
 
     k_default = primer_length_ranges().get(polymerase, (6, 12))
+    # The Tm window likewise; it was fixed at 20-50 C until 2026-11-24.
+    from .parameter import default_tm_range
+
+    tm_default = default_tm_range(polymerase)
     for key, value in (("min_k", k_default[0]), ("max_k", k_default[1])):
         if key not in params:
             sources[key] = f"polymerase:{polymerase}"
@@ -730,8 +747,8 @@ def resolve_design_request(params: Mapping[str, Any]) -> DesignRequest:
         conditions=conditions,
         coverage_reach=reach,
         coverage_geometry=geometry,
-        min_tm=float(params.get("min_tm", 20)),
-        max_tm=float(params.get("max_tm", 50)),
+        min_tm=float(params.get("min_tm", tm_default[0])),
+        max_tm=float(params.get("max_tm", tm_default[1])),
         data_dir=str(params.get("data_dir") or "."),
         primer_lengths=tuple(range(min_k, max_k + 1)),
         candidate_retention=str(params.get("candidate_retention") or "all_qc"),
@@ -868,6 +885,65 @@ CLI_OVERLAY_EXCLUDED: dict[str, str] = {
 }
 
 
+#: `optimize` flags that change the delivered panel and have no params.json
+#: key, with their argparse defaults. A flag set to anything else is recorded
+#: in `DesignRequest.search_flags`; until 2026-11-24 none of them reached the
+#: request, so runs differing only by, say, --minimize-primers shared one
+#: `request_hash`. The test file below checks these defaults against the live
+#: parser and that every optimize flag is classified here or below.
+CLI_SEARCH_FLAGS: dict[str, Any] = {
+    "application": "enrichment",
+    "enable_qa": False,
+    "ensemble_combine": "best",
+    "ensemble_methods": None,
+    "max_extension": None,
+    "mechanistic_weight": None,
+    "min_fg_bg_ratio": None,
+    "minimize_primers": False,
+    "no_background": False,
+    "no_bg_prefilter": False,
+    "target_coverage": 0.7,
+    "template_gc": None,
+    "uniformity_weight": None,
+    "use_background_filter": False,
+    "use_mechanistic_model": False,
+}
+
+#: `optimize` flags that do not change which panel is delivered, with why.
+NOT_A_DESIGN_SETTING: dict[str, str] = {
+    "json_file": "names the params file, which is the request itself",
+    "quiet": "logging only",
+    "use_gpu": "execution backend; same answer",
+    "no_gpu": "execution backend; same answer",
+    "gpu_device": "execution backend; same answer",
+    "use_position_cache": "execution strategy; same answer",
+    "method_guide": "prints guidance",
+    "background_bloom_path": "unimplemented; warns at run time",
+    "background_sampled_path": "unimplemented; warns at run time",
+    "max_optimization_time": "unimplemented; warns at run time",
+    "auto_size": "acts through the panel size, which is overlaid as the effective size",
+    "show_frontier": "reports a frontier beside the run",
+    "quick_estimate": "reports an estimate",
+    "validate_simulation": "validates the delivered panel afterwards",
+    "simulation_time": "validates the delivered panel afterwards",
+}
+
+
+def cli_search_settings(args) -> tuple:
+    """The `CLI_SEARCH_FLAGS` this invocation set, as sorted (name, value) pairs.
+
+    None means absent, as for every flag here, so a handler that never defines
+    a flag (``design`` lacks most of them) contributes nothing for it.
+    """
+    settings = []
+    for name, default in CLI_SEARCH_FLAGS.items():
+        value = getattr(args, name, None)
+        if value is None or value == default:
+            continue
+        settings.append((name, list(value) if isinstance(value, (list, tuple)) else value))
+    return tuple(sorted(settings, key=lambda item: item[0]))
+
+
 def cli_overrides(args) -> dict[str, Any]:
     """What this invocation set on the command line, by params.json name.
 
@@ -948,7 +1024,15 @@ def effective_design_request(args, target_size=None) -> DesignRequest | None:
     if target_size is not None:
         supplied = {**supplied, "target_set_size": target_size, "num_primers": target_size}
 
-    return resolve_design_request(supplied)
+    request = resolve_design_request(supplied)
+    settings = cli_search_settings(args)
+    if not settings:
+        return request
+    from dataclasses import replace
+
+    flagged = replace(request, search_flags=settings)
+    object.__setattr__(flagged, "_conditions_fingerprint", request.conditions_fingerprint)
+    return flagged
 
 
 def effective_request_for_manifest(args, target_size) -> DesignRequest | None:

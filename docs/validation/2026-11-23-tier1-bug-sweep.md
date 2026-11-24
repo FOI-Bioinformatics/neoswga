@@ -80,6 +80,9 @@ its own.
 
 ## Not addressed (tiers 2 and 3)
 
+Tier 2 was addressed on 2026-11-24; see
+`docs/validation/2026-11-24-tier2-bug-sweep.md`. Tier 3 remains.
+
 Tier 2: a corrupt `run_manifest.json` is erased on the next append;
 `step2_df.csv`/`step3_df.csv` are written non-atomically; `simulate
 --duration` is inert and `--polymerase` defaults to phi29; `evaluate-set`

@@ -257,7 +257,8 @@ class TestPrimerMetricsFromRow:
         assert primer.fg_freq == 0.0
         assert primer.bg_freq == 0.0
         assert primer.tm == 0.0
-        assert primer.gini == 0.0
+        # Unmeasured, not 0.0 (the best evenness); 2026-11-24.
+        assert primer.gini is None
         assert primer.strand_ratio == 1.0  # default for strand_ratio
 
     def test_invalid_values_use_defaults(self, edge_case_primer_row):

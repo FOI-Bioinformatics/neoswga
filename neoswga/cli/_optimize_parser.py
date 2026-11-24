@@ -5,6 +5,8 @@ at once and pushed it past its size budget. These builders touch nothing but
 the parser they are handed, so they carry no coupling back.
 """
 
+from neoswga.cli._common import positive_int
+
 
 def _add_optimize_option_groups(parser):
     """Background-filtering and performance groups for `optimize`."""
@@ -104,7 +106,7 @@ def _add_optimize_option_groups(parser):
     opt_perf_group.add_argument(
         "-n",
         "--num-primers",
-        type=int,
+        type=positive_int,
         help="Number of primers to select (default: from params.json or 6)",
     )
     opt_perf_group.add_argument(

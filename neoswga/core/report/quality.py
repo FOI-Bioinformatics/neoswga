@@ -229,6 +229,20 @@ def _generate_recommendation(
     return short_rec, detailed, considerations
 
 
+def enrichment_display(enrichment: float) -> str:
+    """An enrichment for display: the ratio, or what the sentinel means.
+
+    `MAX_SELECTIVITY` (1e6) stands for "no background binding detected". The
+    grade, the executive summary and this function say so; the technical
+    report printed "1000000x" until 2026-11-24.
+    """
+    from neoswga.core.base_optimizer import MAX_SELECTIVITY
+
+    if enrichment >= MAX_SELECTIVITY:
+        return "no background binding detected"
+    return f"{enrichment:.0f}x"
+
+
 def calculate_quality_grade(metrics: PipelineMetrics) -> QualityAssessment:
     """
     Calculate quality grade for a primer set.

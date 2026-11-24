@@ -31,6 +31,7 @@ from neoswga.core.report.quality import (
     QualityAssessment,
     QualityGrade,
     calculate_quality_grade,
+    enrichment_display,
 )
 from neoswga.core.report.utils import (
     CLAIM_LIMITS_CSS,
@@ -55,6 +56,7 @@ from neoswga.core.report.visualizations import (
     render_primer_heatmap,
     render_tm_gc_distribution,
 )
+from neoswga.core.selectivity import MAX_SELECTIVITY
 
 from .funnel_section import render_candidate_reach, render_funnel
 
@@ -90,7 +92,7 @@ class PrimerProfile:
     fg_sites: int
     bg_sites: int
     specificity: float
-    gini: float
+    gini: float | None
     strand_ratio: float
     three_prime_seq: str
     three_prime_stability: float
@@ -190,17 +192,21 @@ def _contribution_score(primer: PrimerMetrics, amp_available: bool) -> float:
     amplification score, including it as zero would shrink every primer's
     contribution by a fifth and make the column look like a finding. The three
     remaining terms are renormalised to sum to one instead.
+
+    The uniformity term is dropped the same way when the primer's Gini was not
+    measured (NaN below `min_gini_sites`): it read as 0.0, the best evenness,
+    until 2026-11-24.
     """
-    specificity_score = min(primer.specificity / 100, 1.0)
-    uniformity_score = max(0.0, 1.0 - primer.gini)
-    strand_deviation = min(abs(primer.strand_ratio - 1.0), 1.0)
-    strand_score = 1.0 - strand_deviation
-
-    if not amp_available:
-        return 0.5 * specificity_score + 0.375 * uniformity_score + 0.125 * strand_score
-
-    amp_score = max(0.0, min(primer.amp_pred, 1.0))
-    return 0.4 * specificity_score + 0.3 * uniformity_score + 0.2 * amp_score + 0.1 * strand_score
+    terms = {
+        "specificity": (0.4, min(primer.specificity / 100, 1.0)),
+        "strand": (0.1, 1.0 - min(abs(primer.strand_ratio - 1.0), 1.0)),
+    }
+    if primer.gini is not None:
+        terms["uniformity"] = (0.3, max(0.0, 1.0 - primer.gini))
+    if amp_available:
+        terms["amp"] = (0.2, max(0.0, min(primer.amp_pred, 1.0)))
+    total = sum(weight for weight, _ in terms.values())
+    return sum(weight * score for weight, score in terms.values()) / total
 
 
 def _calculate_primer_profile(
@@ -426,7 +432,7 @@ def _render_summary_metrics(quality: QualityAssessment) -> str:
         if comp.name == "Coverage":
             value_str = f"{comp.raw_value:.1%}"
         elif comp.name == "Specificity":
-            value_str = f"{comp.raw_value:.0f}x"
+            value_str = enrichment_display(comp.raw_value)
         elif comp.name == "Uniformity":
             value_str = f"{comp.raw_value:.2f}"
         elif comp.name == "Thermodynamics":
@@ -725,7 +731,7 @@ def _render_primer_profiles(profiles: list[PrimerProfile]) -> str:
                     <div class="label">Specificity</div>
                 </div>
                 <div class="primer-stat">
-                    <div class="value">{profile.gini:.2f}</div>
+                    <div class="value">{"n/a" if profile.gini is None else f"{profile.gini:.2f}"}</div>
                     <div class="label">Gini</div>
                 </div>
                 <div class="primer-stat">
@@ -972,7 +978,12 @@ def render_technical_report(data: TechnicalReportData, interactive: bool = False
     enrichment_class = get_rating_class(spec_comp.rating if spec_comp else "")
     enrichment_rating = spec_comp.rating if spec_comp else "N/A"
 
-    if enrichment >= 500:
+    if enrichment >= MAX_SELECTIVITY:
+        specificity_interpretation = (
+            "No background binding was detected, so no enrichment ratio can be "
+            "computed; the figure is a placeholder, not a measurement."
+        )
+    elif enrichment >= 500:
         specificity_interpretation = (
             f"The enrichment ratio of {enrichment:.0f}x indicates excellent specificity. "
             f"For every background amplicon, approximately {enrichment:.0f} target amplicons "

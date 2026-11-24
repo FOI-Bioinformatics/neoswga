@@ -553,7 +553,9 @@ def render_primer_heatmap(
         gc_norm = p.gc_content  # Already 0-1
         tm_norm = min(max((p.tm - 20) / 40, 0), 1)  # Normalize 20-60C range
         spec_norm = min(p.specificity / 1000, 1)  # Normalize to 1000x
-        uniform_norm = 1 - p.gini  # Invert gini
+        # None leaves the cell empty: an unmeasured Gini (Known Issue 9) is
+        # not perfect evenness, and `1 - None` crashed the interactive report.
+        uniform_norm = None if p.gini is None else 1 - p.gini
 
         row = [gc_norm, tm_norm, spec_norm, uniform_norm]
         if show_quality:

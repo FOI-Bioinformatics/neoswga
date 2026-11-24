@@ -233,7 +233,12 @@ def analyze_primer_set(args):
             getattr(args, "fg", None) or "<genome.fasta>",
         )
 
-    primers = args.primers
+    # Validated as analyze-dimers validates them: this printed a Tm and a free
+    # energy for "ACGTXXQQ" until 2026-11-24. A ValueError reaches the command
+    # boundary, which exits 1 naming the sequence.
+    from neoswga.cli._common import validate_primer_sequence
+
+    primers = list(dict.fromkeys(validate_primer_sequence(p) for p in args.primers))
 
     print(f"\nAnalyzing {len(primers)} primers:")
     for primer in primers:

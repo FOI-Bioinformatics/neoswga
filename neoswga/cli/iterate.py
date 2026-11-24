@@ -14,6 +14,8 @@ from neoswga.cli._common import (
     _apply_seed,
     _record_run_manifest,
     collect_primers_from_args,
+    design_genomes,
+    design_position_cache,
     merge_args_to_parameter,
     params_command,
     validate_params_json_file,
@@ -254,7 +256,6 @@ def run_expand_primers(args):
 
     from neoswga.core import parameter
     from neoswga.core import pipeline as core_pipeline
-    from neoswga.core.position_cache import PositionCache
     from neoswga.core.primer_expansion import PrimerExpander
 
     quiet = getattr(args, "quiet", False)
@@ -330,7 +331,10 @@ def run_expand_primers(args):
         # prefix the cache was not built over with an empty array, silently, so an
         # fg-only cache made every background lookup below read zero -- which is
         # indistinguishable downstream from a perfectly specific panel.
-        cache = PositionCache(fg_prefixes + bg_prefixes, all_primers)
+        # Scans fixed primers the index does not hold; see `design_position_cache`.
+        cache = design_position_cache(
+            fg_prefixes + bg_prefixes, all_primers, design_genomes(parameter)
+        )
 
         context, candidate_source, candidates = _open_expansion_source(parameter, args, candidates)
         # Create expander
@@ -426,7 +430,20 @@ def _load_primer_list(cli_primers, primers_file, name="primer"):
                 p = line.strip().split()[0] if line.strip() else ""
                 if p and not p.startswith("#"):
                     primers.append(p)
-    primers = [p.upper().strip() for p in primers if p.strip()]
+    # Validated and de-duplicated, as `collect_primers_from_args` does; this
+    # only upper-cased until 2026-11-24, so a duplicate was analysed twice and
+    # a non-DNA string was scored.
+    from neoswga.cli._common import validate_primer_sequence
+
+    validated = [validate_primer_sequence(p, name) for p in primers if p.strip()]
+    # A, C, G, T only: an ambiguity code matches nothing in the position index
+    # or an exact scan, so such a primer would score as zero sites.
+    for primer in validated:
+        if set(primer) - set("ACGT"):
+            raise ValueError(f"{name} {primer!r} contains a base other than A, C, G or T")
+    primers = list(dict.fromkeys(validated))
+    if len(primers) < len(validated):
+        logger.warning(f"Dropped {len(validated) - len(primers)} duplicate {name}(s)")
     if not primers:
         logger.error(f"No {name} sequences provided")
         sys.exit(1)
@@ -555,22 +572,35 @@ def run_swap_primer(args):
         print(output_json)
 
 
-def _realistic_reach():
-    """Per-primer coverage reach for the configured polymerase.
+def _rescore_reach(polymerase):
+    """Per-primer coverage reach for rescore-set: `coverage_reach`, else realistic.
 
-    Coverage is scored on the REALISTIC reach (~3 kb for phi29), not
-    single-molecule processivity (~70 kb). contract-set and rescore-set both
-    used processivity, which on a multi-Mb target let one binding site cover a
-    large fraction of the genome -- turning --min-coverage into an on/off switch
-    rather than a threshold.
+    The realistic per-primer reach (~3 kb for phi29), not single-molecule
+    processivity (~70 kb), which let one site cover much of a genome. And the
+    configured `coverage_reach` when there is one, so this command scores a set
+    at the reach `optimize` selected it at; it ignored the key until 2026-11-23.
+    Uses `coverage.polymerase_extension_reach` through `resolve_coverage_reach`.
     """
     from neoswga.core import parameter
-    from neoswga.core.coverage import polymerase_extension_reach
+    from neoswga.core.coverage import resolve_coverage_reach
 
-    return polymerase_extension_reach(
-        getattr(parameter, "polymerase", "phi29") or "phi29",
-        coverage_metric="realistic",
-    )
+    return resolve_coverage_reach(polymerase, override=getattr(parameter, "coverage_reach", None))
+
+
+def _selectivity_ratio(fg_cov, bg_cov, has_background):
+    """Target over host coverage; None with no host, the sentinel at zero host.
+
+    It was `fg_cov * 1000` whenever host coverage was zero, including with no
+    host configured: a figure nothing measured. `MAX_SELECTIVITY` is the
+    optimizer's own "no background binding" sentinel, so the two agree.
+    """
+    if not has_background:
+        return None
+    if bg_cov <= 1e-12:
+        from neoswga.core.selectivity import MAX_SELECTIVITY
+
+        return float(MAX_SELECTIVITY)
+    return float(fg_cov / bg_cov)
 
 
 def _prefix_lengths(parameter, kind):
@@ -746,16 +776,13 @@ def run_rescore_set(args):
     # multi-target user can see uneven distribution.
     coverage_block: dict = {}
     try:
-        from neoswga.core.coverage import (
-            compute_per_prefix_coverage,
-            polymerase_extension_reach,
-        )
+        from neoswga.core.coverage import compute_per_prefix_coverage
         from neoswga.core.position_cache import PositionCache
 
         # Realistic per-primer reach, matching how the optimizer scores
         # fg_coverage. This used single-molecule processivity (~70 kb), which
         # overstated coverage by roughly an order of magnitude.
-        extension = polymerase_extension_reach(conditions.polymerase, coverage_metric="realistic")
+        extension = _rescore_reach(conditions.polymerase)
 
         fg_prefixes, fg_lengths = _prefix_lengths(parameter, "fg")
 
@@ -795,7 +822,7 @@ def run_rescore_set(args):
             "per_target_coverage": {k: float(v) for k, v in fg_per_target.items()},
             "bg_coverage": float(bg_cov),
             "per_background_coverage": {k: float(v) for k, v in bg_per_prefix.items()},
-            "selectivity_ratio": float((fg_cov / bg_cov) if bg_cov > 1e-12 else (fg_cov * 1000.0)),
+            "selectivity_ratio": _selectivity_ratio(fg_cov, bg_cov, bool(bg_prefixes)),
             "extension_reach_bp": int(extension),
         }
     except MissingPositionsError as e:

@@ -683,14 +683,9 @@ def _dispatch_optimizer(
     candidate_source = kwargs.pop("candidate_source", None)
 
     if method in ("ensemble", "auto", "all"):
-        ensemble_methods = kwargs.pop("ensemble_methods", None) or [
-            "hybrid",
-            "dominating-set",
-            "network",
-            "background-aware",
-        ]
-        # `seed` is captured separately and passed explicitly; remove it from
-        # kwargs so it is not forwarded twice into _run_ensemble.
+        default_members = ["hybrid", "dominating-set", "network", "background-aware"]
+        ensemble_methods = kwargs.pop("ensemble_methods", None) or default_members
+        # `seed` is passed explicitly; drop it so _run_ensemble gets it once.
         kwargs.pop("seed", None)
         ensemble_combine = kwargs.pop("ensemble_combine", "best")
         result = _run_ensemble(
@@ -756,6 +751,8 @@ def _dispatch_optimizer(
                 conditions=conditions,
                 **kwargs,
             )
+        except DesignError:
+            raise  # its type and fields belong in the failure record
         except Exception as e:
             logger.error(f"Failed to create optimizer '{method}': {e}")
             return OptimizationResult.failure(method, str(e)), None
